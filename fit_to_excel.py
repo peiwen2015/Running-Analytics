@@ -18,7 +18,7 @@ from openpyxl.utils import get_column_letter
 
 
 FIT_EPOCH = 631065600
-APP_VERSION = "1.4.0"
+APP_VERSION = "1.4.1"
 WORKBOOK_VERSION_NAME = "跑步分析資料 v1.0"
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent / "EXCEL"
 CONFIG_DIR = Path(__file__).resolve().parent / "config"

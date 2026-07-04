@@ -201,6 +201,10 @@ def first_value(form, key, default=""):
     return (form.get(key, [default])[0] or "").strip()
 
 
+def selected_values(form, key):
+    return [value.strip() for value in form.get(key, []) if value.strip()]
+
+
 def content_disposition_params(value):
     params = {}
     for part in value.split(";"):
@@ -284,7 +288,7 @@ def build_metadata(form):
         "wind_direction": first_value(form, "wind_direction"),
         "wind_speed": first_value(form, "wind_speed"),
         "workout_type": first_value(form, "workout_type"),
-        "training_focus": first_value(form, "training_focus"),
+        "training_focus": "、".join(selected_values(form, "training_focus")),
         "rpe": first_value(form, "rpe"),
         "fueling": first_value(form, "fueling"),
         "max_hr": parse_number(first_value(form, "max_hr")),
@@ -302,6 +306,16 @@ def option_tags(options, selected=""):
     for option in options:
         value = html.escape(str(option), quote=True)
         is_selected = " selected" if str(option) == selected else ""
+        tags.append(f'<option value="{value}"{is_selected}>{html.escape(str(option))}</option>')
+    return "\n".join(tags)
+
+
+def multi_option_tags(options, selected=None):
+    selected = set(selected or [])
+    tags = []
+    for option in options:
+        value = html.escape(str(option), quote=True)
+        is_selected = " selected" if str(option) in selected else ""
         tags.append(f'<option value="{value}"{is_selected}>{html.escape(str(option))}</option>')
     return "\n".join(tags)
 
@@ -435,6 +449,9 @@ def base_styles():
       font: inherit;
       color: var(--ink);
       background: #fff;
+    }
+    select[multiple] {
+      min-height: 132px;
     }
     textarea {
       min-height: 76px;
@@ -604,7 +621,8 @@ def render_page(message="", error="", selected_fit=""):
           </label>
           <label>
             <span>訓練目的</span>
-            <select name="training_focus">{option_tags(dropdown_options["training_focus"])}</select>
+            <select name="training_focus" multiple>{multi_option_tags(dropdown_options["training_focus"])}</select>
+            <p class="note">可多選；macOS 按 Command，Windows 按 Ctrl。</p>
           </label>
           <label>
             <span>Garmin 主觀感受</span>
