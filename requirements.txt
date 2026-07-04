@@ -1,0 +1,2 @@
+garmin-fit-sdk==21.208.0
+openpyxl>=3.1
