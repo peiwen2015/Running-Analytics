@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import html
 import json
+import os
+import sys
 import subprocess
 import threading
 import webbrowser
@@ -30,6 +32,15 @@ OPTION_FIELDS = [
     ("training_focus", "訓練目的"),
     ("garmin_rpe", "Garmin 主觀感受"),
 ]
+
+
+def open_file(path):
+    if sys.platform.startswith("win"):
+        os.startfile(path)  # type: ignore[attr-defined]
+    elif sys.platform == "darwin":
+        subprocess.run(["open", str(path)], check=False)
+    else:
+        subprocess.run(["xdg-open", str(path)], check=False)
 
 
 def all_fit_files():
@@ -566,7 +577,7 @@ class AppHandler(BaseHTTPRequestHandler):
         if parsed.path == "/open":
             output = Path(first_value(query, "path"))
             if output.exists() and output.is_file():
-                subprocess.run(["open", str(output)], check=False)
+                open_file(output)
                 self.send_html(render_page(message=f"已要求系統開啟 <code>{html.escape(str(output))}</code>"))
             else:
                 self.send_html(render_page(error="找不到輸出檔。"), status=404)
