@@ -139,6 +139,14 @@ def average(values, ndigits=1):
     return round(mean(vals), ndigits) if vals else None
 
 
+def maximum(values):
+    vals = [float(v) for v in values if isinstance(v, (int, float))]
+    if not vals:
+        return None
+    value = max(vals)
+    return int(value) if value.is_integer() else value
+
+
 def first_number(row, *fields):
     for field in fields:
         value = row.get(field)
@@ -311,6 +319,15 @@ def stamina_at(records, fallback=None):
     return fallback
 
 
+def first_message_number(messages, message_names, *fields):
+    for message_name in message_names:
+        for message in messages.get(message_name, []):
+            value = first_number(message, *fields)
+            if value is not None:
+                return value
+    return None
+
+
 def garmin_rpe_label(value, rpe_options):
     if not isinstance(value, (int, float)):
         return ""
@@ -360,17 +377,27 @@ def build_rows(messages):
         if index == len(laps):
             end_stamina = int(first_number(session, *STAMINA_SESSION_END_FIELDS) or end_stamina or 0)
 
+        avg_heart_rate = first_number(lap, "avg_heart_rate")
+        if avg_heart_rate is None:
+            avg_heart_rate = average([record.get("heart_rate") for record in lap_records], 1)
+        max_heart_rate = first_number(lap, "max_heart_rate")
+        if max_heart_rate is None:
+            max_heart_rate = maximum([record.get("heart_rate") for record in lap_records])
+        avg_power = first_number(lap, "avg_power")
+        if avg_power is None:
+            avg_power = average([record.get("power") for record in lap_records], 1)
+
         rows.append(
             [
                 index,
                 round(distance),
                 round(elapsed),
                 pace_text(elapsed, distance),
-                rounded(lap.get("avg_heart_rate"), 1),
+                rounded(avg_heart_rate, 1),
                 None,
-                lap.get("max_heart_rate"),
+                max_heart_rate,
                 rounded(cadence_spm, 1),
-                rounded(lap.get("avg_power"), 1),
+                rounded(avg_power, 1),
                 None,
                 rounded(lap.get("avg_vertical_oscillation"), 1),
                 rounded(lap.get("avg_vertical_ratio"), 1),
@@ -474,6 +501,27 @@ def apply_auto_weather(metadata, session, records, enabled):
     for key, value in weather.items():
         if result.get(key) in ("", None):
             result[key] = value
+    return result
+
+
+def apply_fit_metadata(metadata, messages):
+    result = dict(metadata)
+    if result.get("max_hr") in ("", None):
+        value = first_message_number(
+            messages,
+            ("zones_target_mesgs", "time_in_zone_mesgs"),
+            "max_heart_rate",
+        )
+        if value is not None:
+            result["max_hr"] = value
+    if result.get("critical_power") in ("", None):
+        value = first_message_number(
+            messages,
+            ("zones_target_mesgs", "time_in_zone_mesgs"),
+            "functional_threshold_power",
+        )
+        if value is not None:
+            result["critical_power"] = value
     return result
 
 
@@ -676,22 +724,30 @@ def add_metadata_sheet(wb, metadata, fit_path, session, dropdown_options):
     return option_ws
 
 
-def add_percentage_formulas(ws, row_count):
-    max_hr_cell = "'活動資訊'!$B$15"
-    cp_cell = "'活動資訊'!$B$16"
+def add_percentage_values(ws, row_count, metadata):
+    max_hr = metadata.get("max_hr")
+    critical_power = metadata.get("critical_power")
     for row in range(3, row_count + 3):
-        ws.cell(row, 6, f'=IF({max_hr_cell}="","",E{row}/{max_hr_cell})')
-        ws.cell(row, 10, f'=IF({cp_cell}="","",I{row}/{cp_cell})')
+        if isinstance(max_hr, (int, float)) and max_hr > 0 and isinstance(ws.cell(row, 5).value, (int, float)):
+            ws.cell(row, 6, ws.cell(row, 5).value / max_hr)
+        if (
+            isinstance(critical_power, (int, float))
+            and critical_power > 0
+            and isinstance(ws.cell(row, 9).value, (int, float))
+        ):
+            ws.cell(row, 10, ws.cell(row, 9).value / critical_power)
 
 
-def add_total_row(ws, row_count):
+def add_total_row(ws, row_count, rows):
     total_row = row_count + 3
     data_start = 3
     data_end = row_count + 2
+    total_distance = sum(row[1] for row in rows if isinstance(row[1], (int, float)))
+    total_seconds = sum(row[2] for row in rows if isinstance(row[2], (int, float)))
     ws.cell(total_row, 1, "總計/平均")
     ws.cell(total_row, 2, f"=SUM(B{data_start}:B{data_end})")
     ws.cell(total_row, 3, f"=SUM(C{data_start}:C{data_end})")
-    ws.cell(total_row, 4, None)
+    ws.cell(total_row, 4, pace_text(total_seconds, total_distance))
     for col in range(5, 16):
         letter = get_column_letter(col)
         ws.cell(total_row, col, f"=AVERAGE({letter}{data_start}:{letter}{data_end})")
@@ -740,7 +796,9 @@ def create_workbook(fit_path: Path, output_path: Path, metadata=None, fetch_weat
     rows, session = build_rows(messages)
     if not rows:
         raise RuntimeError("No lap data found in FIT file.")
-    metadata = apply_auto_weather(metadata or {}, session, messages.get("record_mesgs", []), fetch_weather)
+    metadata = apply_fit_metadata(metadata or {}, messages)
+    metadata = apply_auto_weather(metadata, session, messages.get("record_mesgs", []), fetch_weather)
+    metadata = coerce_metadata(metadata)
 
     wb = Workbook()
     ws = wb.active
@@ -751,8 +809,8 @@ def create_workbook(fit_path: Path, output_path: Path, metadata=None, fetch_weat
     ws.append(HEADERS)
     for row in rows:
         ws.append(row)
-    add_percentage_formulas(ws, len(rows))
-    total_row = add_total_row(ws, len(rows))
+    add_percentage_values(ws, len(rows), metadata)
+    total_row = add_total_row(ws, len(rows), rows)
     apply_styles(ws, total_row)
     add_charts(wb, len(rows))
 

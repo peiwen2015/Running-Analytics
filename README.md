@@ -129,12 +129,16 @@ Stamina 末
 `平均心率%` 會用活動資訊裡的最大心率計算。  
 `平均功率%` 會用活動資訊裡的 Critical Power 計算。
 
+最大心率與 Critical Power 會優先從 FIT 的 zone 設定自動帶入；如果 FIT 裡沒有這些欄位，也可以用參數或在 Excel 手動填寫。
+
 ## Garmin 欄位
 
 目前會從 FIT 自動帶入：
 
 ```text
 Garmin 主觀感受
+最大心率
+Critical Power
 Training Effect (Aerobic)
 Training Effect (Anaerobic)
 Training Load
