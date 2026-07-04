@@ -18,6 +18,7 @@ from openpyxl.utils import get_column_letter
 
 
 FIT_EPOCH = 631065600
+APP_VERSION = "1.4.0"
 WORKBOOK_VERSION_NAME = "跑步分析資料 v1.0"
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent / "EXCEL"
 CONFIG_DIR = Path(__file__).resolve().parent / "config"
@@ -821,6 +822,7 @@ def create_workbook(fit_path: Path, output_path: Path, metadata=None, fetch_weat
 
 def main():
     parser = argparse.ArgumentParser(description="Convert a Garmin FIT running activity to a per-kilometer Excel workbook.")
+    parser.add_argument("--version", action="version", version=f"Running Analytics v{APP_VERSION} / {WORKBOOK_VERSION_NAME}")
     parser.add_argument("fit_file", type=Path)
     parser.add_argument("-o", "--output", type=Path)
     parser.add_argument("--interactive", action="store_true", help="Prompt for manual activity metadata before exporting.")

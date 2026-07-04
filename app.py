@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import html
 import json
+import socket
 import os
 import sys
 import subprocess
@@ -10,9 +11,12 @@ import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import parse_qs, quote, urlencode, urlparse
+
+from openpyxl import load_workbook
 
 from fit_to_excel import (
+    APP_VERSION,
     DEFAULT_OUTPUT_DIR,
     DROPDOWN_CONFIG_PATH,
     WORKBOOK_VERSION_NAME,
@@ -25,6 +29,7 @@ ROOT = Path(__file__).resolve().parent
 FIT_DIR = ROOT / "FIT"
 HOST = "127.0.0.1"
 PORT = 8765
+EXCEL_FORMAT_VERSION = WORKBOOK_VERSION_NAME
 DEFAULT_FIT_LIST_LIMIT = 30
 OPTION_FIELDS = [
     ("shoes", "鞋款"),
@@ -41,6 +46,128 @@ def open_file(path):
         subprocess.run(["open", str(path)], check=False)
     else:
         subprocess.run(["xdg-open", str(path)], check=False)
+
+
+def is_output_file(path):
+    try:
+        resolved = path.resolve()
+        output_root = DEFAULT_OUTPUT_DIR.resolve()
+        return resolved.is_file() and resolved.suffix.lower() == ".xlsx" and resolved.is_relative_to(output_root)
+    except OSError:
+        return False
+
+
+def pace_text(seconds, meters):
+    if not seconds or not meters:
+        return ""
+    sec_per_km = round(float(seconds) / float(meters) * 1000)
+    return f"{sec_per_km // 60}:{sec_per_km % 60:02d}/km"
+
+
+def format_duration(seconds):
+    if not seconds:
+        return ""
+    seconds = int(round(float(seconds)))
+    hours, remainder = divmod(seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours:
+        return f"{hours}:{minutes:02d}:{seconds:02d}"
+    return f"{minutes}:{seconds:02d}"
+
+
+def cell_map(ws):
+    return {ws.cell(row, 1).value: ws.cell(row, 2).value for row in range(1, ws.max_row + 1)}
+
+
+def workbook_summary(path):
+    wb = load_workbook(path, data_only=True)
+    info = cell_map(wb["活動資訊"])
+    km = wb["每公里數據"]
+    rows = [
+        row
+        for row in km.iter_rows(min_row=3, max_row=km.max_row, values_only=True)
+        if row and isinstance(row[0], int)
+    ]
+    total_distance = sum(row[1] or 0 for row in rows)
+    total_seconds = sum(row[2] or 0 for row in rows)
+    avg_hr_values = [row[4] for row in rows if isinstance(row[4], (int, float))]
+    avg_power_values = [row[8] for row in rows if isinstance(row[8], (int, float))]
+
+    summary = [
+        ("活動日期", info.get("活動日期")),
+        ("開始時間", info.get("開始時間")),
+        ("距離", f"{total_distance / 1000:.2f} km" if total_distance else ""),
+        ("時間", format_duration(total_seconds)),
+        ("平均配速", pace_text(total_seconds, total_distance)),
+        ("平均心率", round(sum(avg_hr_values) / len(avg_hr_values), 1) if avg_hr_values else ""),
+        ("平均功率", f"{round(sum(avg_power_values) / len(avg_power_values), 1)} W" if avg_power_values else ""),
+        ("天氣", weather_summary(info)),
+        ("Training Effect", training_effect_summary(info)),
+        ("Training Load", info.get("Training Load")),
+    ]
+    return [(label, value) for label, value in summary if value not in ("", None)]
+
+
+def weather_summary(info):
+    temp = info.get("天氣氣溫(°C)")
+    humidity = info.get("濕度(%)")
+    wind_direction = info.get("風向")
+    wind_speed = info.get("風速")
+    parts = []
+    if temp not in ("", None):
+        parts.append(f"{temp}°C")
+    if humidity not in ("", None):
+        parts.append(f"{humidity}%")
+    wind = " ".join(str(value) for value in (wind_direction, wind_speed) if value not in ("", None))
+    if wind:
+        parts.append(wind)
+    return " / ".join(parts)
+
+
+def training_effect_summary(info):
+    aerobic = info.get("Training Effect (Aerobic)")
+    anaerobic = info.get("Training Effect (Anaerobic)")
+    parts = []
+    if aerobic not in ("", None):
+        parts.append(f"Aerobic {aerobic}")
+    if anaerobic not in ("", None):
+        parts.append(f"Anaerobic {anaerobic}")
+    return " / ".join(parts)
+
+
+def summary_html(items):
+    if not items:
+        return ""
+    rows = "\n".join(
+        f"<tr><th>{html.escape(str(label))}</th><td>{html.escape(str(value))}</td></tr>"
+        for label, value in items
+    )
+    return f"""
+      <table class="summary">
+        <tbody>
+          {rows}
+        </tbody>
+      </table>
+    """
+
+
+def friendly_error(error):
+    text = str(error)
+    if isinstance(error, FileNotFoundError):
+        return "找不到指定的檔案，請確認 FIT 檔還在原本的位置。"
+    if isinstance(error, PermissionError):
+        return "目前沒有權限讀寫這個檔案或資料夾，請確認檔案沒有被 Excel 開著，或換一個輸出檔名再試一次。"
+    if isinstance(error, ModuleNotFoundError):
+        return "缺少必要套件，請重新啟動應用程式，讓啟動檔自動安裝需求套件。"
+    if isinstance(error, socket.timeout):
+        return "天氣查詢逾時。可以稍後再試，或先取消自動抓天氣完成轉檔。"
+    if "No lap data found" in text:
+        return "這個 FIT 裡沒有可用的每公里分段資料，可能不是跑步活動，或檔案內容不完整。"
+    if "FIT decode errors" in text:
+        return "FIT 檔解析失敗，請確認這是 Garmin Connect 匯出的 Original FIT 檔。"
+    if "urlopen" in text or "Open-Meteo" in text:
+        return "天氣查詢失敗。請確認網路可用，或先取消自動抓天氣完成轉檔。"
+    return f"轉檔失敗：{text}"
 
 
 def all_fit_files():
@@ -242,6 +369,13 @@ def base_styles():
       color: var(--muted);
       font-size: 15px;
     }
+    .version {
+      display: inline-block;
+      margin-left: 8px;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 500;
+    }
     nav {
       display: flex;
       gap: 8px;
@@ -366,6 +500,24 @@ def base_styles():
       font-size: 13px;
       margin: 8px 0 0;
     }
+    .summary {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 10px 0 14px;
+      color: var(--ink);
+    }
+    .summary th,
+    .summary td {
+      border-bottom: 1px solid var(--line);
+      padding: 8px 6px;
+      text-align: left;
+      vertical-align: top;
+    }
+    .summary th {
+      width: 130px;
+      color: var(--muted);
+      font-weight: 700;
+    }
     code {
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       font-size: 13px;
@@ -409,7 +561,7 @@ def render_page(message="", error="", selected_fit=""):
 </head>
 <body>
   <main>
-    <h1>跑步分析資料轉檔</h1>
+    <h1>跑步分析資料轉檔 <span class="version">App v{html.escape(APP_VERSION)} / Excel {html.escape(EXCEL_FORMAT_VERSION)}</span></h1>
     <p class="subtitle">選擇 Garmin FIT 檔，產生固定格式 Excel。最大心率、Critical Power、Training Effect 與天氣會盡量自動帶入。</p>
     {nav("convert")}
     {status_html(message, error)}
@@ -538,7 +690,7 @@ def render_options_page(message="", error=""):
 </head>
 <body>
   <main>
-    <h1>下拉選單設定</h1>
+    <h1>下拉選單設定 <span class="version">App v{html.escape(APP_VERSION)}</span></h1>
     <p class="subtitle">修改活動資訊裡的鞋款、課表類型、訓練目的與主觀感受選項。儲存後會立即套用到轉檔頁與輸出的 Excel。</p>
     {nav("options")}
     {status_html(message, error)}
@@ -568,6 +720,19 @@ class AppHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def send_xlsx(self, path):
+        data = path.read_bytes()
+        filename = path.name
+        self.send_response(200)
+        self.send_header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header(
+            "Content-Disposition",
+            f"attachment; filename*=UTF-8''{quote(filename)}",
+        )
+        self.end_headers()
+        self.wfile.write(data)
+
     def do_GET(self):
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
@@ -576,11 +741,23 @@ class AppHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/open":
             output = Path(first_value(query, "path"))
-            if output.exists() and output.is_file():
+            if is_output_file(output):
                 open_file(output)
                 self.send_html(render_page(message=f"已要求系統開啟 <code>{html.escape(str(output))}</code>"))
             else:
                 self.send_html(render_page(error="找不到輸出檔。"), status=404)
+            return
+        if parsed.path == "/download":
+            output = Path(first_value(query, "path"))
+            if is_output_file(output):
+                self.send_xlsx(output)
+            else:
+                self.send_html(render_page(error="找不到可下載的 Excel 檔。"), status=404)
+            return
+        if parsed.path == "/open-folder":
+            DEFAULT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+            open_file(DEFAULT_OUTPUT_DIR)
+            self.send_html(render_page(message=f"已要求系統開啟 <code>{html.escape(str(DEFAULT_OUTPUT_DIR))}</code>"))
             return
         self.send_html(render_page())
 
@@ -621,6 +798,7 @@ class AppHandler(BaseHTTPRequestHandler):
         fit_name = fit_path.name
 
         output_name = first_value(form, "output_name")
+        output_name = Path(output_name).name if output_name else ""
         output_path = DEFAULT_OUTPUT_DIR / output_name if output_name else DEFAULT_OUTPUT_DIR / f"{WORKBOOK_VERSION_NAME}_{fit_path.stem}.xlsx"
         if output_path.suffix.lower() != ".xlsx":
             output_path = output_path.with_suffix(".xlsx")
@@ -631,13 +809,22 @@ class AppHandler(BaseHTTPRequestHandler):
         try:
             saved = create_workbook(fit_path, output_path, metadata=metadata, fetch_weather=fetch_weather)
         except Exception as error:
-            self.send_html(render_page(error=f"轉檔失敗：{error}", selected_fit=fit_name), status=500)
+            self.send_html(render_page(error=friendly_error(error), selected_fit=fit_name), status=500)
             return
 
         open_link = "/open?" + urlencode({"path": str(saved)})
+        download_link = "/download?" + urlencode({"path": str(saved)})
+        folder_link = "/open-folder"
+        try:
+            summary = summary_html(workbook_summary(saved))
+        except Exception:
+            summary = ""
         message = (
             f"轉檔完成：<code>{html.escape(str(saved))}</code><br>"
-            f'<a class="button" href="{html.escape(open_link, quote=True)}">開啟 Excel</a>'
+            f"{summary}"
+            f'<a class="button" href="{html.escape(open_link, quote=True)}">開啟 Excel</a> '
+            f'<a class="button secondary" href="{html.escape(download_link, quote=True)}">下載 Excel</a> '
+            f'<a class="button secondary" href="{html.escape(folder_link, quote=True)}">開啟 EXCEL 資料夾</a>'
         )
         self.send_html(render_page(message=message, selected_fit=fit_name))
 
@@ -652,9 +839,21 @@ def open_browser_later(url):
 
 
 def main():
-    server = ThreadingHTTPServer((HOST, PORT), AppHandler)
+    try:
+        server = ThreadingHTTPServer((HOST, PORT), AppHandler)
+    except PermissionError:
+        print(f"無法啟動本機網站：系統目前不允許使用 {HOST}:{PORT}。")
+        print("請確認防火牆或安全性設定，或改用 CLI 方式轉檔。")
+        return
+    except OSError as error:
+        if getattr(error, "errno", None) == 48:
+            print(f"無法啟動本機網站：{HOST}:{PORT} 已經被其他程式使用。")
+            print("請關掉舊的轉檔視窗，或稍後再重新啟動。")
+        else:
+            print(f"無法啟動本機網站：{error}")
+        return
     url = f"http://{HOST}:{PORT}"
-    print(f"Running Analytics app: {url}")
+    print(f"Running Analytics v{APP_VERSION}: {url}")
     open_browser_later(url)
     try:
         server.serve_forever()
