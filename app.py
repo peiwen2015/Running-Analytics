@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import html
+import json
 import subprocess
 import threading
 import webbrowser
@@ -23,6 +24,12 @@ FIT_DIR = ROOT / "FIT"
 HOST = "127.0.0.1"
 PORT = 8765
 DEFAULT_FIT_LIST_LIMIT = 30
+OPTION_FIELDS = [
+    ("shoes", "鞋款"),
+    ("workout_types", "課表類型"),
+    ("training_focus", "訓練目的"),
+    ("garmin_rpe", "Garmin 主觀感受"),
+]
 
 
 def all_fit_files():
@@ -170,33 +177,28 @@ def input_field(label, name, value="", input_type="text", placeholder=""):
     """
 
 
-def render_page(message="", error="", selected_fit=""):
-    dropdown_options = load_dropdown_options(DROPDOWN_CONFIG_PATH)
-    files, total_count, list_limit = fit_files(selected_fit)
-    fit_options = []
-    for path in files:
-        value = html.escape(path.name, quote=True)
-        is_selected = " selected" if path.name == selected_fit else ""
-        fit_options.append(f'<option value="{value}"{is_selected}>{html.escape(path.name)}</option>')
-    if not fit_options:
-        fit_options.append('<option value="">FIT 資料夾目前沒有 .fit 檔</option>')
+def nav(active="convert"):
+    convert_class = " active" if active == "convert" else ""
+    options_class = " active" if active == "options" else ""
+    return f"""
+      <nav>
+        <a class="nav-link{convert_class}" href="/">轉檔</a>
+        <a class="nav-link{options_class}" href="/options">下拉選單設定</a>
+      </nav>
+    """
 
-    status = ""
+
+def status_html(message="", error=""):
     if message:
-        status = f'<section class="status ok">{message}</section>'
+        return f'<section class="status ok">{message}</section>'
     if error:
-        status = f'<section class="status error">{html.escape(error)}</section>'
+        return f'<section class="status error">{html.escape(error)}</section>'
+    return ""
 
-    list_note = f"FIT 資料夾共有 {total_count} 個檔案，目前清單只顯示最近 {min(total_count, list_limit)} 個。"
 
-    return f"""<!doctype html>
-<html lang="zh-Hant">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>跑步分析資料轉檔</title>
-  <style>
-    :root {{
+def base_styles():
+    return """
+    :root {
       color-scheme: light;
       --ink: #1f2933;
       --muted: #65758b;
@@ -207,63 +209,80 @@ def render_page(message="", error="", selected_fit=""):
       --page: #f4f7fa;
       --error: #b42318;
       --ok: #166534;
-    }}
-    * {{ box-sizing: border-box; }}
-    body {{
+    }
+    * { box-sizing: border-box; }
+    body {
       margin: 0;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", sans-serif;
       background: var(--page);
       color: var(--ink);
-    }}
-    main {{
+    }
+    main {
       width: min(1040px, calc(100vw - 32px));
       margin: 32px auto;
-    }}
-    h1 {{
+    }
+    h1 {
       margin: 0 0 6px;
       font-size: 28px;
       letter-spacing: 0;
-    }}
-    .subtitle {{
+    }
+    .subtitle {
       margin: 0 0 24px;
       color: var(--muted);
       font-size: 15px;
-    }}
-    form {{
+    }
+    nav {
+      display: flex;
+      gap: 8px;
+      margin: 0 0 18px;
+      border-bottom: 1px solid var(--line);
+    }
+    .nav-link {
+      color: var(--muted);
+      text-decoration: none;
+      padding: 10px 12px;
+      border-bottom: 3px solid transparent;
+      font-weight: 700;
+    }
+    .nav-link.active {
+      color: var(--accent-dark);
+      border-bottom-color: var(--accent);
+    }
+    form {
       background: var(--surface);
       border: 1px solid var(--line);
       border-radius: 8px;
       padding: 22px;
       box-shadow: 0 8px 24px rgba(31, 41, 51, 0.07);
-    }}
-    fieldset {{
+    }
+    fieldset {
       border: 0;
       padding: 0;
       margin: 0 0 24px;
-    }}
-    legend {{
+    }
+    legend {
       padding: 0;
       margin: 0 0 14px;
       font-size: 17px;
       font-weight: 700;
-    }}
-    .grid {{
+    }
+    .grid {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 14px;
-    }}
-    label {{
+    }
+    label {
       display: flex;
       flex-direction: column;
       gap: 6px;
       min-width: 0;
-    }}
-    label.wide {{ grid-column: span 3; }}
-    span {{
+    }
+    label.wide { grid-column: span 3; }
+    span {
       font-size: 13px;
       color: var(--muted);
-    }}
-    input, select, textarea {{
+    }
+    input, select, textarea {
       width: 100%;
       border: 1px solid var(--line);
       border-radius: 6px;
@@ -271,28 +290,34 @@ def render_page(message="", error="", selected_fit=""):
       font: inherit;
       color: var(--ink);
       background: #fff;
-    }}
-    textarea {{
+    }
+    textarea {
       min-height: 76px;
       resize: vertical;
-    }}
-    .inline {{
+    }
+    textarea.tall {
+      min-height: 220px;
+      line-height: 1.45;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+    }
+    .inline {
       display: flex;
       align-items: center;
       gap: 10px;
       color: var(--ink);
       margin-top: 2px;
-    }}
-    .inline input {{
+    }
+    .inline input {
       width: auto;
-    }}
-    .actions {{
+    }
+    .actions {
       display: flex;
       align-items: center;
       gap: 12px;
       margin-top: 4px;
-    }}
-    button, .button {{
+    }
+    button, .button {
       appearance: none;
       border: 0;
       border-radius: 6px;
@@ -304,52 +329,79 @@ def render_page(message="", error="", selected_fit=""):
       cursor: pointer;
       text-decoration: none;
       display: inline-block;
-    }}
-    button:hover, .button:hover {{
+    }
+    button:hover, .button:hover {
       background: var(--accent-dark);
-    }}
-    .secondary {{
+    }
+    .secondary {
       background: #e7eef5;
       color: var(--ink);
-    }}
-    .secondary:hover {{
+    }
+    .secondary:hover {
       background: #d7e3ee;
-    }}
-    .status {{
+    }
+    .status {
       border-radius: 8px;
       padding: 14px 16px;
       margin: 0 0 18px;
       border: 1px solid var(--line);
       background: #fff;
       line-height: 1.55;
-    }}
-    .ok {{ color: var(--ok); }}
-    .error {{ color: var(--error); }}
-    .note {{
+    }
+    .ok { color: var(--ok); }
+    .error { color: var(--error); }
+    .note {
       color: var(--muted);
       font-size: 13px;
       margin: 8px 0 0;
-    }}
-    code {{
+    }
+    code {
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       font-size: 13px;
       color: var(--ink);
-    }}
-    @media (max-width: 760px) {{
-      main {{ width: min(100vw - 20px, 1040px); margin: 18px auto; }}
-      form {{ padding: 16px; }}
-      .grid {{ grid-template-columns: 1fr; }}
-      label.wide {{ grid-column: span 1; }}
-      .actions {{ flex-direction: column; align-items: stretch; }}
-      button, .button {{ text-align: center; }}
-    }}
+    }
+    @media (max-width: 760px) {
+      main { width: min(100vw - 20px, 1040px); margin: 18px auto; }
+      form { padding: 16px; }
+      .grid { grid-template-columns: 1fr; }
+      label.wide { grid-column: span 1; }
+      .actions { flex-direction: column; align-items: stretch; }
+      button, .button { text-align: center; }
+      nav { overflow-x: auto; }
+      .nav-link { white-space: nowrap; }
+    }
+    """
+
+
+def render_page(message="", error="", selected_fit=""):
+    dropdown_options = load_dropdown_options(DROPDOWN_CONFIG_PATH)
+    files, total_count, list_limit = fit_files(selected_fit)
+    fit_options = []
+    for path in files:
+        value = html.escape(path.name, quote=True)
+        is_selected = " selected" if path.name == selected_fit else ""
+        fit_options.append(f'<option value="{value}"{is_selected}>{html.escape(path.name)}</option>')
+    if not fit_options:
+        fit_options.append('<option value="">FIT 資料夾目前沒有 .fit 檔</option>')
+
+    list_note = f"FIT 資料夾共有 {total_count} 個檔案，目前清單只顯示最近 {min(total_count, list_limit)} 個。"
+
+    return f"""<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>跑步分析資料轉檔</title>
+  <style>
+    {base_styles()}
   </style>
 </head>
 <body>
   <main>
     <h1>跑步分析資料轉檔</h1>
     <p class="subtitle">選擇 Garmin FIT 檔，產生固定格式 Excel。最大心率、Critical Power、Training Effect 與天氣會盡量自動帶入。</p>
-    {status}
+    {nav("convert")}
+    {status_html(message, error)}
     <form method="post" action="/convert" enctype="multipart/form-data">
       <fieldset>
         <legend>檔案</legend>
@@ -424,6 +476,78 @@ def render_page(message="", error="", selected_fit=""):
 </html>"""
 
 
+def options_textarea(name, label, values):
+    text = "\n".join(str(value) for value in values)
+    return f"""
+      <label class="wide">
+        <span>{html.escape(label)}，每行一個選項</span>
+        <textarea class="tall" name="{html.escape(name)}">{html.escape(text)}</textarea>
+      </label>
+    """
+
+
+def dropdown_options_from_form(form):
+    result = {}
+    for key, _label in OPTION_FIELDS:
+        lines = [line.strip() for line in first_value(form, key).splitlines()]
+        values = []
+        seen = set()
+        for line in lines:
+            if not line or line in seen:
+                continue
+            values.append(line)
+            seen.add(line)
+        if not values:
+            raise ValueError("每一組下拉選單至少需要一個選項。")
+        result[key] = values
+    return result
+
+
+def save_dropdown_options(options):
+    CONFIG_DIR = DROPDOWN_CONFIG_PATH.parent
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    DROPDOWN_CONFIG_PATH.write_text(
+        json.dumps(options, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def render_options_page(message="", error=""):
+    options = load_dropdown_options(DROPDOWN_CONFIG_PATH)
+    fields = "\n".join(options_textarea(key, label, options[key]) for key, label in OPTION_FIELDS)
+    return f"""<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>下拉選單設定</title>
+  <style>
+    {base_styles()}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>下拉選單設定</h1>
+    <p class="subtitle">修改活動資訊裡的鞋款、課表類型、訓練目的與主觀感受選項。儲存後會立即套用到轉檔頁與輸出的 Excel。</p>
+    {nav("options")}
+    {status_html(message, error)}
+    <form method="post" action="/options">
+      <fieldset>
+        <legend>選項內容</legend>
+        <div class="grid">
+          {fields}
+        </div>
+      </fieldset>
+      <div class="actions">
+        <button type="submit">儲存選項</button>
+        <a class="button secondary" href="/">回轉檔</a>
+      </div>
+    </form>
+  </main>
+</body>
+</html>"""
+
+
 class AppHandler(BaseHTTPRequestHandler):
     def send_html(self, content, status=200):
         data = content.encode("utf-8")
@@ -436,6 +560,9 @@ class AppHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
+        if parsed.path == "/options":
+            self.send_html(render_options_page())
+            return
         if parsed.path == "/open":
             output = Path(first_value(query, "path"))
             if output.exists() and output.is_file():
@@ -448,6 +575,19 @@ class AppHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
+        if parsed.path == "/options":
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length)
+            form, _files = parse_post_data(self.headers, body)
+            try:
+                options = dropdown_options_from_form(form)
+                save_dropdown_options(options)
+            except Exception as error:
+                self.send_html(render_options_page(error=f"儲存失敗：{error}"), status=400)
+                return
+            self.send_html(render_options_page(message="下拉選單已更新。"))
+            return
+
         if parsed.path != "/convert":
             self.send_html(render_page(error="不支援的操作。"), status=404)
             return
