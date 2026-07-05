@@ -448,6 +448,29 @@ def workout_focus_reference_table(dropdown_options):
     """
 
 
+def product_banner(title="Running Analytics Converter"):
+    return f"""
+      <section class="product-banner">
+        <div class="banner-copy">
+          <p class="eyebrow">Personal Running Intelligence Platform</p>
+          <h1>{html.escape(title)}</h1>
+          <p class="banner-subtitle">Garmin FIT -> Standardized Excel -> AI Coach Analysis</p>
+          <div class="flow">
+            <span>FIT Import</span>
+            <span>Excel v1.0</span>
+            <span>AI Coach</span>
+            <span>Long-term Analytics</span>
+          </div>
+          <p class="banner-note">將 Garmin FIT 活動檔轉換為固定格式 Excel，支援每日 AI 教練分析、週/月趨勢與長期跑步資料庫。</p>
+        </div>
+        <div class="version-panel">
+          <span>App v{html.escape(APP_VERSION)}</span>
+          <span>Excel Schema v1.0</span>
+        </div>
+      </section>
+    """
+
+
 def nav(active="convert"):
     convert_class = " active" if active == "convert" else ""
     options_class = " active" if active == "options" else ""
@@ -471,13 +494,14 @@ def base_styles():
     return """
     :root {
       color-scheme: light;
-      --ink: #1f2933;
-      --muted: #65758b;
-      --line: #d9e2ec;
-      --accent: #1f6f8b;
-      --accent-dark: #14506a;
+      --ink: #18222f;
+      --muted: #657386;
+      --line: #d9e3ee;
+      --accent: #0f766e;
+      --accent-dark: #0b4f5f;
+      --accent-soft: #e7f4f2;
       --surface: #ffffff;
-      --page: #f4f7fa;
+      --page: #f3f7fa;
       --error: #b42318;
       --ok: #166534;
     }
@@ -485,22 +509,80 @@ def base_styles():
     body {
       margin: 0;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", sans-serif;
-      background: var(--page);
+      background:
+        linear-gradient(180deg, #edf5f7 0, var(--page) 260px),
+        var(--page);
       color: var(--ink);
     }
     main {
-      width: min(1040px, calc(100vw - 32px));
-      margin: 32px auto;
+      width: min(1120px, calc(100vw - 32px));
+      margin: 28px auto 40px;
     }
     h1 {
       margin: 0 0 6px;
-      font-size: 28px;
+      font-size: 30px;
       letter-spacing: 0;
     }
+    .product-banner {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 24px;
+      align-items: start;
+      margin: 0 0 18px;
+      padding: 28px 32px;
+      border-radius: 18px;
+      color: #fff;
+      background: linear-gradient(135deg, #063a4c 0%, #0b6467 58%, #0f766e 100%);
+      box-shadow: 0 18px 48px rgba(11, 79, 95, 0.22);
+    }
+    .eyebrow {
+      margin: 0 0 8px;
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.76);
+    }
+    .product-banner h1 {
+      margin: 0;
+      font-size: 34px;
+      line-height: 1.15;
+    }
+    .banner-subtitle {
+      margin: 8px 0 0;
+      font-size: 16px;
+      color: rgba(255, 255, 255, 0.86);
+    }
+    .banner-note {
+      max-width: 720px;
+      margin: 16px 0 0;
+      color: rgba(255, 255, 255, 0.86);
+      line-height: 1.6;
+    }
     .subtitle {
-      margin: 0 0 24px;
+      margin: 0 0 18px;
       color: var(--muted);
       font-size: 15px;
+      line-height: 1.6;
+    }
+    .flow {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 18px 0 0;
+    }
+    .flow span {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.14);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 999px;
+      padding: 7px 10px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .flow span + span::before {
+      content: "-> ";
+      opacity: 0.68;
     }
     .version {
       display: inline-block;
@@ -509,29 +591,51 @@ def base_styles():
       font-size: 14px;
       font-weight: 500;
     }
+    .version-panel {
+      display: grid;
+      gap: 8px;
+      min-width: 180px;
+      justify-items: end;
+    }
+    .version-panel span {
+      display: inline-flex;
+      color: #fff;
+      background: rgba(255, 255, 255, 0.16);
+      border: 1px solid rgba(255, 255, 255, 0.24);
+      border-radius: 999px;
+      padding: 8px 11px;
+      font-size: 13px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
     nav {
       display: flex;
-      gap: 8px;
+      width: fit-content;
+      gap: 4px;
       margin: 0 0 18px;
-      border-bottom: 1px solid var(--line);
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.74);
+      box-shadow: 0 8px 24px rgba(31, 41, 51, 0.06);
     }
     .nav-link {
       color: var(--muted);
       text-decoration: none;
-      padding: 10px 12px;
-      border-bottom: 3px solid transparent;
+      padding: 9px 14px;
+      border-radius: 999px;
       font-weight: 700;
     }
     .nav-link.active {
-      color: var(--accent-dark);
-      border-bottom-color: var(--accent);
+      color: #fff;
+      background: var(--accent-dark);
     }
     form {
       background: var(--surface);
       border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 22px;
-      box-shadow: 0 8px 24px rgba(31, 41, 51, 0.07);
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 16px 42px rgba(31, 41, 51, 0.1);
     }
     fieldset {
       border: 0;
@@ -563,11 +667,15 @@ def base_styles():
     input, select, textarea {
       width: 100%;
       border: 1px solid var(--line);
-      border-radius: 6px;
+      border-radius: 8px;
       padding: 10px 11px;
       font: inherit;
       color: var(--ink);
       background: #fff;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: 3px solid rgba(15, 118, 110, 0.16);
+      border-color: var(--accent);
     }
     select[multiple] {
       min-height: 132px;
@@ -601,8 +709,8 @@ def base_styles():
     button, .button {
       appearance: none;
       border: 0;
-      border-radius: 6px;
-      background: var(--accent);
+      border-radius: 8px;
+      background: var(--accent-dark);
       color: #fff;
       padding: 11px 16px;
       font: inherit;
@@ -612,10 +720,10 @@ def base_styles():
       display: inline-block;
     }
     button:hover, .button:hover {
-      background: var(--accent-dark);
+      background: var(--accent);
     }
     .secondary {
-      background: #e7eef5;
+      background: #e7f0f3;
       color: var(--ink);
     }
     .secondary:hover {
@@ -672,8 +780,9 @@ def base_styles():
     .reference-table-wrap {
       overflow-x: auto;
       border: 1px solid var(--line);
-      border-radius: 8px;
+      border-radius: 12px;
       background: #fff;
+      box-shadow: 0 8px 22px rgba(31, 41, 51, 0.06);
     }
     .reference-table {
       width: 100%;
@@ -689,7 +798,7 @@ def base_styles():
       vertical-align: middle;
     }
     .reference-table th {
-      background: #f8fafc;
+      background: #f7fafb;
       font-weight: 800;
     }
     .reference-table tr:last-child td {
@@ -707,6 +816,16 @@ def base_styles():
     }
     @media (max-width: 760px) {
       main { width: min(100vw - 20px, 1040px); margin: 18px auto; }
+      .product-banner {
+        grid-template-columns: 1fr;
+        padding: 22px;
+        border-radius: 14px;
+      }
+      .product-banner h1 { font-size: 28px; }
+      .version-panel {
+        justify-items: start;
+        grid-template-columns: repeat(2, minmax(0, auto));
+      }
       form { padding: 16px; }
       .grid { grid-template-columns: 1fr; }
       label.wide { grid-column: span 1; }
@@ -743,8 +862,7 @@ def render_page(message="", error="", selected_fit=""):
 </head>
 <body>
   <main>
-    <h1>跑步分析資料轉檔 <span class="version">App v{html.escape(APP_VERSION)} / Excel {html.escape(EXCEL_FORMAT_VERSION)}</span></h1>
-    <p class="subtitle">選擇 Garmin FIT 檔，產生固定格式 Excel。最大心率、Critical Power、Training Effect 與天氣會盡量自動帶入。</p>
+    {product_banner()}
     {nav("convert")}
     {status_html(message, error)}
     <form method="post" action="/convert" enctype="multipart/form-data">
@@ -965,7 +1083,7 @@ def render_options_page(message="", error=""):
 </head>
 <body>
   <main>
-    <h1>下拉選單設定 <span class="version">App v{html.escape(APP_VERSION)}</span></h1>
+    {product_banner("Running Analytics Settings")}
     <p class="subtitle">先修改活動資訊選項並儲存，再設定課表類型與訓練目的的對應關係。儲存後會立即套用到轉檔頁與輸出的 Excel。</p>
     {nav("options")}
     {status_html(message, error)}
