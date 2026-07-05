@@ -37,6 +37,22 @@ OPTION_FIELDS = [
     ("training_focus", "訓練目的"),
     ("garmin_rpe", "Garmin 主觀感受"),
 ]
+WORKOUT_FOCUS_MAP_KEY = "workout_focus_map"
+DEFAULT_WORKOUT_FOCUS_HINTS = {
+    "Recovery": ["Recovery"],
+    "Easy": ["Aerobic Base"],
+    "LSD": ["Endurance"],
+    "Long Run": ["Endurance"],
+    "Progression": ["Endurance"],
+    "Tempo": ["Threshold"],
+    "Marathon Pace": ["Marathon Pace"],
+    "Interval": ["VO₂max"],
+    "Repetition": ["Speed"],
+    "Hill": ["Running Economy"],
+    "Race": ["Race Simulation", "Test"],
+    "Test": ["Race Simulation", "Test"],
+    "Fartlek": ["Speed", "VO₂max"],
+}
 
 
 def open_file(path):
@@ -77,6 +93,68 @@ def format_duration(seconds):
 
 def cell_map(ws):
     return {ws.cell(row, 1).value: ws.cell(row, 2).value for row in range(1, ws.max_row + 1)}
+
+
+def load_raw_config():
+    if not DROPDOWN_CONFIG_PATH.exists():
+        return {}
+    try:
+        return json.loads(DROPDOWN_CONFIG_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def matching_option(options, hint):
+    hint = hint.lower()
+    for option in options:
+        if hint in str(option).lower():
+            return option
+    return None
+
+
+def default_workout_focus_map(options):
+    result = {}
+    training_focus = options.get("training_focus", [])
+    for workout in options.get("workout_types", []):
+        matched_focus = []
+        for workout_hint, focus_hints in DEFAULT_WORKOUT_FOCUS_HINTS.items():
+            if workout_hint.lower() not in str(workout).lower():
+                continue
+            for focus_hint in focus_hints:
+                focus = matching_option(training_focus, focus_hint)
+                if focus and focus not in matched_focus:
+                    matched_focus.append(focus)
+            break
+        result[workout] = matched_focus
+    return result
+
+
+def clean_workout_focus_map(raw_map, options):
+    workout_types = options.get("workout_types", [])
+    training_focus = set(options.get("training_focus", []))
+    result = {}
+    if isinstance(raw_map, dict):
+        for workout in workout_types:
+            values = raw_map.get(workout, [])
+            if isinstance(values, str):
+                values = [values]
+            if isinstance(values, list):
+                result[workout] = [
+                    str(value).strip()
+                    for value in values
+                    if str(value).strip() in training_focus
+                ]
+    defaults = default_workout_focus_map(options)
+    for workout in workout_types:
+        result.setdefault(workout, defaults.get(workout, []))
+    return result
+
+
+def load_app_options():
+    options = load_dropdown_options(DROPDOWN_CONFIG_PATH)
+    raw = load_raw_config()
+    options[WORKOUT_FOCUS_MAP_KEY] = clean_workout_focus_map(raw.get(WORKOUT_FOCUS_MAP_KEY), options)
+    return options
 
 
 def workbook_summary(path):
@@ -329,6 +407,47 @@ def input_field(label, name, value="", input_type="text", placeholder=""):
     """
 
 
+def workout_focus_reference_table(dropdown_options):
+    mapping = dropdown_options.get(WORKOUT_FOCUS_MAP_KEY, {})
+    rows = []
+    for workout in dropdown_options["workout_types"]:
+        focus_matches = mapping.get(workout, [])
+        focus_label = "、".join(focus_matches) if focus_matches else "未設定"
+        focus_data = "||".join(focus_matches)
+        rows.append(
+            f"""
+            <tr>
+              <td>{html.escape(workout)}</td>
+              <td>{html.escape(focus_label)}</td>
+              <td>
+                <button class="small-button" type="button" data-workout-value="{html.escape(workout, quote=True)}" data-focus-values="{html.escape(focus_data, quote=True)}">套用</button>
+              </td>
+            </tr>
+            """
+        )
+    return f"""
+      <section class="reference">
+        <div class="reference-head">
+          <h2>課表與訓練目的對照</h2>
+        </div>
+        <div class="reference-table-wrap">
+          <table class="reference-table">
+            <thead>
+              <tr>
+                <th>課表類型</th>
+                <th>預設訓練目的</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {"".join(rows)}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    """
+
+
 def nav(active="convert"):
     convert_class = " active" if active == "convert" else ""
     options_class = " active" if active == "options" else ""
@@ -535,6 +654,52 @@ def base_styles():
       color: var(--muted);
       font-weight: 700;
     }
+    .reference {
+      margin: 0 0 24px;
+    }
+    .reference-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 0 0 10px;
+    }
+    .reference h2 {
+      margin: 0;
+      font-size: 17px;
+      letter-spacing: 0;
+    }
+    .reference-table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+    .reference-table {
+      width: 100%;
+      min-width: 640px;
+      border-collapse: collapse;
+      color: var(--ink);
+    }
+    .reference-table th,
+    .reference-table td {
+      border-bottom: 1px solid var(--line);
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: middle;
+    }
+    .reference-table th {
+      background: #f8fafc;
+      font-weight: 800;
+    }
+    .reference-table tr:last-child td {
+      border-bottom: 0;
+    }
+    .small-button {
+      padding: 7px 10px;
+      font-size: 13px;
+      white-space: nowrap;
+    }
     code {
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       font-size: 13px;
@@ -554,7 +719,7 @@ def base_styles():
 
 
 def render_page(message="", error="", selected_fit=""):
-    dropdown_options = load_dropdown_options(DROPDOWN_CONFIG_PATH)
+    dropdown_options = load_app_options()
     files, total_count, list_limit = fit_files(selected_fit)
     fit_options = []
     for path in files:
@@ -647,12 +812,41 @@ def render_page(message="", error="", selected_fit=""):
         </div>
       </fieldset>
 
+      {workout_focus_reference_table(dropdown_options)}
+
       <div class="actions">
         <button type="submit">轉成 Excel</button>
         <a class="button secondary" href="/">重新整理</a>
       </div>
     </form>
   </main>
+  <script>
+    function chooseOption(select, optionValue, allowMultiple) {{
+      if (!select || !optionValue) return;
+      for (const option of select.options) {{
+        if (option.value === optionValue) {{
+          if (allowMultiple) {{
+            option.selected = true;
+          }} else {{
+            select.value = option.value;
+          }}
+          return;
+        }}
+      }}
+    }}
+
+    document.querySelectorAll("[data-workout-value]").forEach((button) => {{
+      button.addEventListener("click", () => {{
+        const workoutSelect = document.querySelector('select[name="workout_type"]');
+        const focusSelect = document.querySelector('select[name="training_focus"]');
+        chooseOption(workoutSelect, button.dataset.workoutValue, false);
+        if (focusSelect) {{
+          for (const option of focusSelect.options) option.selected = false;
+          button.dataset.focusValues.split("||").forEach((focus) => chooseOption(focusSelect, focus, true));
+        }}
+      }});
+    }});
+  </script>
 </body>
 </html>"""
 
@@ -664,6 +858,48 @@ def options_textarea(name, label, values):
         <span>{html.escape(label)}，每行一個選項</span>
         <textarea class="tall" name="{html.escape(name)}">{html.escape(text)}</textarea>
       </label>
+    """
+
+
+def mapping_select(name, training_focus, selected):
+    return f"""
+      <select name="{html.escape(name)}" multiple>
+        {multi_option_tags(training_focus, selected)}
+      </select>
+    """
+
+
+def mapping_settings_table(options):
+    rows = []
+    mapping = options.get(WORKOUT_FOCUS_MAP_KEY, {})
+    training_focus = options["training_focus"]
+    for index, workout in enumerate(options["workout_types"]):
+        selected = mapping.get(workout, [])
+        rows.append(
+            f"""
+            <tr>
+              <td>
+                {html.escape(workout)}
+                <input type="hidden" name="map_workout_{index}" value="{html.escape(workout, quote=True)}">
+              </td>
+              <td>{mapping_select(f"map_focus_{index}", training_focus, selected)}</td>
+            </tr>
+            """
+        )
+    return f"""
+      <div class="reference-table-wrap">
+        <table class="reference-table">
+          <thead>
+            <tr>
+              <th>課表類型</th>
+              <th>對應訓練目的</th>
+            </tr>
+          </thead>
+          <tbody>
+            {"".join(rows)}
+          </tbody>
+        </table>
+      </div>
     """
 
 
@@ -681,6 +917,27 @@ def dropdown_options_from_form(form):
         if not values:
             raise ValueError("每一組下拉選單至少需要一個選項。")
         result[key] = values
+    result[WORKOUT_FOCUS_MAP_KEY] = workout_focus_map_from_form(form, result)
+    return result
+
+
+def workout_focus_map_from_form(form, options):
+    valid_workouts = set(options["workout_types"])
+    valid_focus = set(options["training_focus"])
+    result = {}
+    for index, workout in enumerate(options["workout_types"]):
+        posted_workout = first_value(form, f"map_workout_{index}") or workout
+        if posted_workout not in valid_workouts:
+            continue
+        selected = [
+            value
+            for value in selected_values(form, f"map_focus_{index}")
+            if value in valid_focus
+        ]
+        result[posted_workout] = selected
+    defaults = default_workout_focus_map(options)
+    for workout in options["workout_types"]:
+        result.setdefault(workout, defaults.get(workout, []))
     return result
 
 
@@ -694,7 +951,7 @@ def save_dropdown_options(options):
 
 
 def render_options_page(message="", error=""):
-    options = load_dropdown_options(DROPDOWN_CONFIG_PATH)
+    options = load_app_options()
     fields = "\n".join(options_textarea(key, label, options[key]) for key, label in OPTION_FIELDS)
     return f"""<!doctype html>
 <html lang="zh-Hant">
@@ -709,7 +966,7 @@ def render_options_page(message="", error=""):
 <body>
   <main>
     <h1>下拉選單設定 <span class="version">App v{html.escape(APP_VERSION)}</span></h1>
-    <p class="subtitle">修改活動資訊裡的鞋款、課表類型、訓練目的與主觀感受選項。儲存後會立即套用到轉檔頁與輸出的 Excel。</p>
+    <p class="subtitle">先修改活動資訊選項並儲存，再設定課表類型與訓練目的的對應關係。儲存後會立即套用到轉檔頁與輸出的 Excel。</p>
     {nav("options")}
     {status_html(message, error)}
     <form method="post" action="/options">
@@ -719,8 +976,13 @@ def render_options_page(message="", error=""):
           {fields}
         </div>
       </fieldset>
+      <fieldset>
+        <legend>課表與訓練目的對應</legend>
+        <p class="note">若剛新增或改名課表/訓練目的，請先儲存選項內容；頁面重新整理後再設定對應關係。</p>
+        {mapping_settings_table(options)}
+      </fieldset>
       <div class="actions">
-        <button type="submit">儲存選項</button>
+        <button type="submit">儲存設定</button>
         <a class="button secondary" href="/">回轉檔</a>
       </div>
     </form>

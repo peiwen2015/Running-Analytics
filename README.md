@@ -2,7 +2,7 @@
 
 把 Garmin Connect 匯出的 Original FIT 活動檔轉成固定格式的 Excel：`跑步分析資料 v1.0`。
 
-目前 App 版本：`v1.4.1`  
+目前 App 版本：`v1.4.2`  
 目前 Excel 格式版本：`跑步分析資料 v1.0`
 
 這個專案的目的不是只看單次活動，而是長期累積一致格式的跑步資料，之後可以比較鞋款、天氣、心率、功率、Stamina 消耗、跑姿指標與訓練效果。
@@ -70,6 +70,8 @@ http://127.0.0.1:8765
 ```
 
 `訓練目的` 可多選；macOS 按 `Command`，Windows 按 `Ctrl`，再點選多個項目。輸出到 Excel 時會合併成同一欄。
+
+轉檔頁內建「課表與訓練目的對照」表，可直接按「套用」帶入對應的課表類型與訓練目的。對應關係可在「下拉選單設定」頁修改，會儲存在 `config/dropdown_options.json`。
 
 如果使用檔案選取按鈕，App 會先把該檔複製到 `FIT/`，再進行轉檔。
 
@@ -225,7 +227,8 @@ config/dropdown_options.json
   "shoes": [],
   "workout_types": [],
   "training_focus": [],
-  "garmin_rpe": []
+  "garmin_rpe": [],
+  "workout_focus_map": {}
 }
 ```
 
