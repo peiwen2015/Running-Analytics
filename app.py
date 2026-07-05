@@ -32,6 +32,7 @@ ASSETS_DIR = ROOT / "assets"
 HOST = "127.0.0.1"
 PORT = 8765
 EXCEL_FORMAT_VERSION = WORKBOOK_VERSION_NAME
+EXCEL_SCHEMA_LABEL = EXCEL_FORMAT_VERSION.replace("跑步分析資料 ", "Excel Schema ")
 DEFAULT_FIT_LIST_LIMIT = 30
 OPTION_FIELDS = [
     ("shoes", "鞋款"),
@@ -189,8 +190,8 @@ def workbook_summary(path):
 
 
 def weather_summary(info):
-    temp = info.get("天氣氣溫(°C)")
-    humidity = info.get("濕度(%)")
+    temp = info.get("天氣氣溫 (°C)", info.get("天氣氣溫(°C)"))
+    humidity = info.get("濕度 (%)", info.get("濕度(%)"))
     wind_direction = info.get("風向")
     wind_speed = info.get("風速")
     parts = []
@@ -464,7 +465,7 @@ def product_banner(title="跑步分析資料轉檔"):
           <p class="banner-subtitle">Garmin FIT -> Standardized Excel -> AI Coach Analysis</p>
           <div class="flow">
             <span>FIT Import</span>
-            <span>Excel v1.0</span>
+            <span>{html.escape(EXCEL_SCHEMA_LABEL)}</span>
             <span>AI Coach</span>
             <span>Long-term Analytics</span>
           </div>
@@ -472,7 +473,7 @@ def product_banner(title="跑步分析資料轉檔"):
         </div>
         <div class="version-panel">
           <span>App v{html.escape(APP_VERSION)}</span>
-          <span>Excel Schema v1.0</span>
+          <span>{html.escape(EXCEL_SCHEMA_LABEL)}</span>
         </div>
       </section>
     """

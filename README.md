@@ -1,9 +1,9 @@
 # Garmin FIT 跑步分析資料
 
-把 Garmin Connect 匯出的 Original FIT 活動檔轉成固定格式的 Excel：`跑步分析資料 v1.0`。
+把 Garmin Connect 匯出的 Original FIT 活動檔轉成固定格式的 Excel：`跑步分析資料 v1.1`。
 
 目前 App 版本：`v1.4.2`  
-目前 Excel 格式版本：`跑步分析資料 v1.0`
+目前 Excel 格式版本：`跑步分析資料 v1.1`
 
 這個專案的目的不是只看單次活動，而是長期累積一致格式的跑步資料，之後可以比較鞋款、天氣、心率、功率、Stamina 消耗、跑姿指標與訓練效果。
 
@@ -109,7 +109,7 @@ python3 fit_to_excel.py FIT/20260703_ACTIVITY.fit --max-hr 173 --critical-power 
 預設會輸出到：
 
 ```text
-EXCEL/跑步分析資料 v1.0_20260703_ACTIVITY.xlsx
+EXCEL/跑步分析資料 v1.1_20260703_ACTIVITY.xlsx
 ```
 
 ## 自動抓天氣
@@ -163,7 +163,44 @@ python3 fit_to_excel.py FIT/20260703_ACTIVITY.fit --interactive
 圖表
 ```
 
-`每公里數據` 是 v1.0 的固定主表，目前維持 18 欄：
+`活動資訊` 是 v1.1 的固定資訊表，分成 5 個資料區塊：
+
+```text
+Metadata
+Excel Schema Version
+資料來源
+Garmin Activity ID
+FIT Hash (SHA-256)
+
+Activity
+活動日期
+開始時間
+活動類型
+課表類型
+訓練目的
+鞋款
+
+Environment
+天氣氣溫 (°C)
+濕度 (%)
+風向
+風速
+
+Subjective
+Garmin 主觀感受
+補給紀錄
+備註
+
+Training Metrics
+最大心率
+Critical Power (W)
+Training Effect (Aerobic)
+Training Effect (Anaerobic)
+Training Load
+Recovery Time (hr)
+```
+
+`每公里數據` 目前維持 18 欄：
 
 ```text
 公里
@@ -209,7 +246,7 @@ Stamina 起 / 末
 
 ```text
 Garmin Activity ID：從 Garmin 原始 FIT 檔名中的長數字解析；若檔名沒有 ID 則留空
-FIT SHA-256：根據 FIT 檔案 bytes 計算，同一檔案即使改名也會相同
+FIT Hash (SHA-256)：根據 FIT 檔案 bytes 計算，同一檔案即使改名也會相同
 ```
 
 Stamina 來自 Garmin FIT 裡尚未由 SDK 命名的 record 欄位，目前已確認：
@@ -274,12 +311,12 @@ python3 inspect_fit.py FIT/20260703_ACTIVITY.fit --json fit_inspection.json
 
 ## 版本規則
 
-`跑步分析資料 v1.0` 的主表欄位應維持穩定，方便長期累積後做比較。
+`跑步分析資料 v1.1` 的主表欄位應維持穩定，方便長期累積後做比較。
 
 如果未來要改 `每公里數據` 的欄位順序、欄位名稱或計算邏輯，建議升成新版本，例如：
 
 ```text
-跑步分析資料 v1.1
+跑步分析資料 v1.2
 ```
 
 這樣一年後資料才不會混在一起。

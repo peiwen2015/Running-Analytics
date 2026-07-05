@@ -21,7 +21,7 @@ from openpyxl.utils import get_column_letter
 
 FIT_EPOCH = 631065600
 APP_VERSION = "1.4.2"
-WORKBOOK_VERSION_NAME = "跑步分析資料 v1.0"
+WORKBOOK_VERSION_NAME = "跑步分析資料 v1.1"
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent / "EXCEL"
 CONFIG_DIR = Path(__file__).resolve().parent / "config"
 DROPDOWN_CONFIG_PATH = CONFIG_DIR / "dropdown_options.json"
@@ -74,26 +74,6 @@ DEFAULT_DROPDOWN_OPTIONS = {
     ],
 }
 WEATHER_FIELDS = ("weather_temp", "humidity", "wind_direction", "wind_speed")
-METADATA_FIELDS = [
-    ("鞋款", "shoe"),
-    ("天氣氣溫(°C)", "weather_temp"),
-    ("濕度(%)", "humidity"),
-    ("風向", "wind_direction"),
-    ("風速", "wind_speed"),
-    ("課表類型", "workout_type"),
-    ("訓練目的（Training Focus）", "training_focus"),
-    ("Garmin 主觀感受", "rpe"),
-    ("補給紀錄", "fueling"),
-    ("最大心率", "max_hr"),
-    ("Critical Power(W)", "critical_power"),
-    ("Training Effect (Aerobic)", "training_effect_aerobic"),
-    ("Training Effect (Anaerobic)", "training_effect_anaerobic"),
-    ("Training Load", "training_load"),
-    ("Recovery Time (hr)", "recovery_time_hr"),
-    ("Garmin Activity ID", "garmin_activity_id"),
-    ("FIT SHA-256", "fit_sha256"),
-    ("備註", "notes"),
-]
 
 
 HEADERS = [
@@ -162,7 +142,7 @@ def first_number(row, *fields):
 
 def parse_garmin_activity_id(path: Path):
     numbers = re.findall(r"\d{10,}", path.stem)
-    return numbers[0] if numbers else ""
+    return int(numbers[0]) if numbers else ""
 
 
 def fit_sha256(path: Path):
@@ -581,6 +561,16 @@ def activity_date(session, fit_path: Path):
     return fit_path.stem
 
 
+def activity_type(session):
+    sport = session.get("sport")
+    sub_sport = session.get("sub_sport")
+    values = []
+    for value in (sport, sub_sport):
+        if value not in ("", None, "generic") and value not in values:
+            values.append(str(value))
+    return " / ".join(values)
+
+
 def apply_styles(ws, last_row):
     blue = PatternFill("solid", fgColor="1F4E78")
     total_fill = PatternFill("solid", fgColor="D9EAF7")
@@ -682,41 +672,107 @@ def add_metadata_sheet(wb, metadata, fit_path, session, dropdown_options):
         value = session.get("training_load_peak")
         if isinstance(value, (int, float)):
             metadata["training_load"] = round(float(value))
-    metadata["garmin_activity_id"] = metadata.get("garmin_activity_id", "")
-    metadata["fit_sha256"] = metadata.get("fit_sha256", "")
+
+    start = fit_datetime(session.get("start_time") or session.get("timestamp"))
+    metadata_sections = [
+        (
+            "Metadata",
+            "1F4E78",
+            "D9EAF7",
+            [
+                ("Excel Schema Version", "v1.1", "excel_schema_version"),
+                ("資料來源", fit_path.name, "source"),
+                ("Garmin Activity ID", metadata.get("garmin_activity_id", ""), "garmin_activity_id"),
+                ("FIT Hash (SHA-256)", metadata.get("fit_sha256", ""), "fit_sha256"),
+            ],
+        ),
+        (
+            "Activity",
+            "2E7D32",
+            "E2F0D9",
+            [
+                ("活動日期", activity_date(session, fit_path), "activity_date"),
+                ("開始時間", start.astimezone().strftime("%H:%M:%S") if start else "", "start_time"),
+                ("活動類型", activity_type(session), "activity_type"),
+                ("課表類型", metadata.get("workout_type", ""), "workout_type"),
+                ("訓練目的", metadata.get("training_focus", ""), "training_focus"),
+                ("鞋款", metadata.get("shoe", ""), "shoe"),
+            ],
+        ),
+        (
+            "Environment",
+            "B8860B",
+            "FFF2CC",
+            [
+                ("天氣氣溫 (°C)", metadata.get("weather_temp", ""), "weather_temp"),
+                ("濕度 (%)", metadata.get("humidity", ""), "humidity"),
+                ("風向", metadata.get("wind_direction", ""), "wind_direction"),
+                ("風速", metadata.get("wind_speed", ""), "wind_speed"),
+            ],
+        ),
+        (
+            "Subjective",
+            "C55A11",
+            "FCE4D6",
+            [
+                ("Garmin 主觀感受", metadata.get("rpe", ""), "rpe"),
+                ("補給紀錄", metadata.get("fueling", ""), "fueling"),
+                ("備註", metadata.get("notes", ""), "notes"),
+            ],
+        ),
+        (
+            "Training Metrics",
+            "7030A0",
+            "EADCF8",
+            [
+                ("最大心率", metadata.get("max_hr", ""), "max_hr"),
+                ("Critical Power (W)", metadata.get("critical_power", ""), "critical_power"),
+                ("Training Effect (Aerobic)", metadata.get("training_effect_aerobic", ""), "training_effect_aerobic"),
+                ("Training Effect (Anaerobic)", metadata.get("training_effect_anaerobic", ""), "training_effect_anaerobic"),
+                ("Training Load", metadata.get("training_load", ""), "training_load"),
+                ("Recovery Time (hr)", metadata.get("recovery_time_hr", ""), "recovery_time_hr"),
+            ],
+        ),
+    ]
+
     ws = wb.create_sheet("活動資訊", 0)
     ws["A1"] = "活動資訊"
     ws["A1"].font = Font(name="Arial", size=14, bold=True, color="FFFFFF")
     ws["A1"].fill = PatternFill("solid", fgColor="1F4E78")
     ws.merge_cells("A1:B1")
 
-    ws["A2"] = "資料來源"
-    ws["B2"] = fit_path.name
-    ws["A3"] = "活動日期"
-    ws["B3"] = activity_date(session, fit_path)
-    start = fit_datetime(session.get("start_time") or session.get("timestamp"))
-    ws["A4"] = "開始時間"
-    ws["B4"] = start.astimezone().strftime("%H:%M:%S") if start else ""
-
-    start_row = 6
-    for offset, (label, key) in enumerate(METADATA_FIELDS):
-        row = start_row + offset
-        ws.cell(row, 1, label)
-        ws.cell(row, 2, metadata.get(key, ""))
+    row_by_key = {}
+    section_rows = {}
+    row_fills = {}
+    current_row = 2
+    for section_name, header_color, fill_color, rows in metadata_sections:
+        ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=2)
+        ws.cell(current_row, 1, section_name)
+        ws.cell(current_row, 1).fill = PatternFill("solid", fgColor=header_color)
+        ws.cell(current_row, 1).font = Font(name="Arial", bold=True, color="FFFFFF")
+        ws.cell(current_row, 1).alignment = Alignment(horizontal="left")
+        section_rows[current_row] = header_color
+        current_row += 1
+        for label, value, key in rows:
+            ws.cell(current_row, 1, label)
+            ws.cell(current_row, 2, value)
+            row_by_key[key] = current_row
+            row_fills[current_row] = fill_color
+            current_row += 1
 
     option_ws = add_options_sheet(wb, dropdown_options)
     validations = {
-        start_row: f"='選項'!$A$2:$A${len(dropdown_options['shoes']) + 1}",
-        start_row + 5: f"='選項'!$B$2:$B${len(dropdown_options['workout_types']) + 1}",
-        start_row + 6: f"='選項'!$C$2:$C${len(dropdown_options['training_focus']) + 1}",
-        start_row + 7: f"='選項'!$D$2:$D${len(dropdown_options['garmin_rpe']) + 1}",
+        row_by_key["shoe"]: f"='選項'!$A$2:$A${len(dropdown_options['shoes']) + 1}",
+        row_by_key["workout_type"]: f"='選項'!$B$2:$B${len(dropdown_options['workout_types']) + 1}",
+        row_by_key["training_focus"]: f"='選項'!$C$2:$C${len(dropdown_options['training_focus']) + 1}",
+        row_by_key["rpe"]: f"='選項'!$D$2:$D${len(dropdown_options['garmin_rpe']) + 1}",
     }
     for row, formula in validations.items():
         dv = DataValidation(type="list", formula1=formula, allow_blank=True)
         ws.add_data_validation(dv)
         dv.add(ws.cell(row, 2))
 
-    for row in (start_row + 9, start_row + 10):
+    for row in (row_by_key["max_hr"], row_by_key["critical_power"]):
         positive_number = DataValidation(
             type="decimal",
             operator="greaterThan",
@@ -726,7 +782,12 @@ def add_metadata_sheet(wb, metadata, fit_path, session, dropdown_options):
         ws.add_data_validation(positive_number)
         positive_number.add(ws.cell(row, 2))
 
-    for row in (start_row + 11, start_row + 12, start_row + 13, start_row + 14):
+    for row in (
+        row_by_key["training_effect_aerobic"],
+        row_by_key["training_effect_anaerobic"],
+        row_by_key["training_load"],
+        row_by_key["recovery_time_hr"],
+    ):
         non_negative_number = DataValidation(
             type="decimal",
             operator="greaterThanOrEqual",
@@ -736,17 +797,21 @@ def add_metadata_sheet(wb, metadata, fit_path, session, dropdown_options):
         ws.add_data_validation(non_negative_number)
         non_negative_number.add(ws.cell(row, 2))
 
-    header_fill = PatternFill("solid", fgColor="D9EAF7")
     thin_gray = Side(style="thin", color="D9E2F3")
-    for row in range(2, start_row + len(METADATA_FIELDS)):
-        ws.cell(row, 1).fill = header_fill
+    for row, fill_color in row_fills.items():
+        fill = PatternFill("solid", fgColor=fill_color)
+        ws.cell(row, 1).fill = fill
+        ws.cell(row, 2).fill = fill
         ws.cell(row, 1).font = Font(name="Arial", bold=True)
         ws.cell(row, 1).alignment = Alignment(horizontal="left")
         ws.cell(row, 2).alignment = Alignment(horizontal="left")
         ws.cell(row, 1).border = Border(bottom=thin_gray)
         ws.cell(row, 2).border = Border(bottom=thin_gray)
-    ws.column_dimensions["A"].width = 20
-    ws.column_dimensions["B"].width = 30
+    for row in section_rows:
+        ws.cell(row, 1).border = Border(top=thin_gray, bottom=thin_gray)
+        ws.cell(row, 2).border = Border(top=thin_gray, bottom=thin_gray)
+    ws.column_dimensions["A"].width = 22
+    ws.column_dimensions["B"].width = 72
     ws.freeze_panes = "A2"
     return option_ws
 
