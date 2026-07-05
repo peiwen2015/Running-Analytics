@@ -87,7 +87,7 @@ http://127.0.0.1:8765
 
 如果使用檔案選取按鈕，App 會先把該檔複製到 `FIT/`，再進行轉檔。
 
-應用程式也有「下拉選單設定」頁面，可以直接修改活動資訊裡的鞋款、課表類型、訓練目的與 Garmin 主觀感受選項。每行一個選項，儲存後會更新：
+應用程式也有「下拉選單設定」頁面，可以直接修改活動資訊裡的鞋款、課表類型、訓練目的、感覺如何與感受難度選項。每行一個選項，儲存後會更新：
 
 ```text
 config/dropdown_options.json
@@ -203,7 +203,8 @@ Environment
 天氣描述
 
 Subjective
-Garmin 主觀感受
+感覺如何
+感受難度
 補給紀錄
 備註
 
@@ -258,7 +259,8 @@ Stamina 末
 目前會從 FIT 自動帶入：
 
 ```text
-Garmin 主觀感受
+感覺如何
+感受難度
 最大心率
 Critical Power
 Training Effect (Aerobic)
@@ -299,6 +301,7 @@ config/dropdown_options.json
   "workout_types": [],
   "training_focus": [],
   "garmin_rpe": [],
+  "garmin_feel": [],
   "workout_focus_map": {}
 }
 ```

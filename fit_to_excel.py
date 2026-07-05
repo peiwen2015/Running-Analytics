@@ -64,13 +64,23 @@ DEFAULT_DROPDOWN_OPTIONS = {
     "Race",
     ],
     "garmin_rpe": [
-    "非常輕鬆 (Very Easy)",
-    "輕鬆 (Easy)",
-    "中等 (Moderate)",
-    "感覺強 (Strong)",
-    "困難 (Hard)",
-    "非常困難 (Very Hard)",
-    "極限 (Maximum)",
+    "1 - 非常輕鬆",
+    "2 - 輕鬆",
+    "3 - 中等",
+    "4 - 有點難",
+    "5 - 困難",
+    "6 - 困難",
+    "7 - 非常困難",
+    "8 - 非常困難",
+    "9 - 超級難",
+    "10 - 極限",
+    ],
+    "garmin_feel": [
+    "非常弱",
+    "弱",
+    "普通",
+    "強",
+    "非常強",
     ],
 }
 WEATHER_FIELDS = ("weather_temp", "humidity", "wind_direction", "wind_speed", "weather_description")
@@ -380,8 +390,13 @@ def garmin_rpe_label(value, rpe_options):
 def normalize_rpe(value, rpe_options):
     if value in ("", None):
         return ""
-    if isinstance(value, str) and value in rpe_options:
-        return value
+    if isinstance(value, str):
+        if value in rpe_options:
+            return value
+        for option in rpe_options:
+            label = option.split(" - ", 1)[-1]
+            if value == label or value == label.split(" (", 1)[0]:
+                return option
     try:
         numeric = float(value)
     except (TypeError, ValueError):
@@ -391,6 +406,32 @@ def normalize_rpe(value, rpe_options):
     if 1 <= rating <= len(rpe_options):
         return rpe_options[rating - 1]
     return str(value)
+
+
+def garmin_feel_label(value, feel_options):
+    if not isinstance(value, (int, float)):
+        return ""
+    scores = [0, 25, 50, 75, 100]
+    index = min(range(len(scores)), key=lambda idx: abs(float(value) - scores[idx]))
+    if index < len(feel_options):
+        return feel_options[index]
+    return str(value)
+
+
+def normalize_feel(value, feel_options):
+    if value in ("", None):
+        return ""
+    if isinstance(value, str):
+        if value in feel_options:
+            return value
+        for option in feel_options:
+            if value == option.split(" (", 1)[0]:
+                return option
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return garmin_feel_label(numeric, feel_options)
 
 
 def build_rows(messages):
@@ -481,6 +522,7 @@ def collect_metadata(args, dropdown_options):
         "weather_description": args.weather_description or "",
         "workout_type": args.workout_type or "",
         "training_focus": args.training_focus or "",
+        "feel": normalize_feel(args.feel, dropdown_options["garmin_feel"]),
         "rpe": normalize_rpe(args.rpe, dropdown_options["garmin_rpe"]),
         "fueling": args.fueling or "",
         "max_hr": args.max_hr if args.max_hr is not None else "",
@@ -512,8 +554,10 @@ def collect_metadata(args, dropdown_options):
         metadata["workout_type"] = prompt_choice("課表類型", dropdown_options["workout_types"])
     if not metadata["training_focus"]:
         metadata["training_focus"] = prompt_choice("訓練目的（Training Focus）", dropdown_options["training_focus"])
+    if metadata["feel"] == "":
+        metadata["feel"] = prompt_text("感覺如何")
     if metadata["rpe"] == "":
-        metadata["rpe"] = prompt_text("主觀感受(RPE 1-10)")
+        metadata["rpe"] = prompt_text("感受難度(1-10)")
     if not metadata["fueling"]:
         metadata["fueling"] = prompt_text("補給紀錄")
     if metadata["max_hr"] == "":
@@ -755,7 +799,8 @@ def add_options_sheet(wb, dropdown_options):
         ("鞋款", dropdown_options["shoes"]),
         ("課表類型", dropdown_options["workout_types"]),
         ("訓練目的", dropdown_options["training_focus"]),
-        ("RPE", dropdown_options["garmin_rpe"]),
+        ("感受難度", dropdown_options["garmin_rpe"]),
+        ("感覺如何", dropdown_options["garmin_feel"]),
     ]
     for col, (title, options) in enumerate(columns, start=1):
         ws.cell(1, col, title)
@@ -773,6 +818,10 @@ def add_metadata_sheet(wb, metadata, fit_path, session, rows, dropdown_options):
         metadata["rpe"] = garmin_rpe_label(session.get("workout_rpe"), dropdown_options["garmin_rpe"])
     else:
         metadata["rpe"] = normalize_rpe(metadata.get("rpe"), dropdown_options["garmin_rpe"])
+    if metadata.get("feel", "") == "":
+        metadata["feel"] = garmin_feel_label(session.get("workout_feel"), dropdown_options["garmin_feel"])
+    else:
+        metadata["feel"] = normalize_feel(metadata.get("feel"), dropdown_options["garmin_feel"])
     if metadata.get("training_effect_aerobic", "") == "":
         value = session.get("total_training_effect")
         if isinstance(value, (int, float)):
@@ -836,7 +885,8 @@ def add_metadata_sheet(wb, metadata, fit_path, session, rows, dropdown_options):
             "C55A11",
             "FCE4D6",
             [
-                ("Garmin 主觀感受", metadata.get("rpe", ""), "rpe"),
+                ("感覺如何", metadata.get("feel", ""), "feel"),
+                ("感受難度", metadata.get("rpe", ""), "rpe"),
                 ("補給紀錄", metadata.get("fueling", ""), "fueling"),
                 ("備註", metadata.get("notes", ""), "notes"),
             ],
@@ -902,6 +952,7 @@ def add_metadata_sheet(wb, metadata, fit_path, session, rows, dropdown_options):
         row_by_key["workout_type"]: f"='選項'!$B$2:$B${len(dropdown_options['workout_types']) + 1}",
         row_by_key["training_focus"]: f"='選項'!$C$2:$C${len(dropdown_options['training_focus']) + 1}",
         row_by_key["rpe"]: f"='選項'!$D$2:$D${len(dropdown_options['garmin_rpe']) + 1}",
+        row_by_key["feel"]: f"='選項'!$E$2:$E${len(dropdown_options['garmin_feel']) + 1}",
     }
     for row, formula in validations.items():
         dv = DataValidation(type="list", formula1=formula, allow_blank=True)
@@ -1067,7 +1118,8 @@ def main():
     parser.add_argument("--weather-description", help="Weather description, e.g. sunny, cloudy, light rain.")
     parser.add_argument("--workout-type", help="Workout type, e.g. Recovery, Tempo, LSD, Intervals.")
     parser.add_argument("--training-focus", help="Training focus, e.g. Aerobic, Threshold, VO2max.")
-    parser.add_argument("--rpe", help="Garmin RPE, e.g. 3, 30, or '3 - 中等 (Moderate)'.")
+    parser.add_argument("--feel", help="Workout feel, e.g. 50 or '普通'.")
+    parser.add_argument("--rpe", help="Effort rating, e.g. 3, 30, or '3 - 中等'.")
     parser.add_argument("--fueling", help="Free-form fueling notes.")
     parser.add_argument("--max-hr", type=float, help="Maximum heart rate used for average heart rate percentage.")
     parser.add_argument("--critical-power", type=float, help="Critical Power in watts used for average power percentage.")

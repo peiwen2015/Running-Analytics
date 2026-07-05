@@ -38,7 +38,8 @@ OPTION_FIELDS = [
     ("shoes", "鞋款"),
     ("workout_types", "課表類型"),
     ("training_focus", "訓練目的"),
-    ("garmin_rpe", "Garmin 主觀感受"),
+    ("garmin_rpe", "感受難度"),
+    ("garmin_feel", "感覺如何"),
 ]
 WORKOUT_FOCUS_MAP_KEY = "workout_focus_map"
 DEFAULT_WORKOUT_FOCUS_HINTS = {
@@ -375,6 +376,7 @@ def build_metadata(form):
         "weather_description": first_value(form, "weather_description"),
         "workout_type": first_value(form, "workout_type"),
         "training_focus": "、".join(selected_values(form, "training_focus")),
+        "feel": first_value(form, "feel"),
         "rpe": first_value(form, "rpe"),
         "fueling": first_value(form, "fueling"),
         "max_hr": parse_number(first_value(form, "max_hr")),
@@ -954,7 +956,11 @@ def render_page(message="", error="", selected_fit=""):
             <p class="note">可多選；macOS 按 Command，Windows 按 Ctrl。</p>
           </label>
           <label>
-            <span>Garmin 主觀感受</span>
+            <span>感覺如何</span>
+            <select name="feel">{option_tags(dropdown_options["garmin_feel"])}</select>
+          </label>
+          <label>
+            <span>感受難度</span>
             <select name="rpe">{option_tags(dropdown_options["garmin_rpe"])}</select>
           </label>
           {input_field("最大心率", "max_hr", input_type="number", placeholder="自動")}
