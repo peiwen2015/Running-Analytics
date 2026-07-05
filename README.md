@@ -53,6 +53,8 @@ Windows 可直接雙擊：
 跑步分析資料轉檔.bat
 ```
 
+Windows 需要先安裝 Python 3.11 以上。若電腦找不到 Python，啟動檔會顯示安裝網址與 `Add python.exe to PATH` 提醒。
+
 啟動檔會自動建立 `.venv`、安裝需求套件，並啟動本機網頁應用：
 
 ```text
