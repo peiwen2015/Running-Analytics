@@ -205,6 +205,13 @@ Training Load
 Stamina 起 / 末
 ```
 
+另外會從檔案本身建立長期匯入用識別欄位：
+
+```text
+Garmin Activity ID：從 Garmin 原始 FIT 檔名中的長數字解析；若檔名沒有 ID 則留空
+FIT SHA-256：根據 FIT 檔案 bytes 計算，同一檔案即使改名也會相同
+```
+
 Stamina 來自 Garmin FIT 裡尚未由 SDK 命名的 record 欄位，目前已確認：
 
 ```text

@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import json
+import re
 from pathlib import Path
 from statistics import mean
 from urllib.parse import urlencode
@@ -88,6 +90,8 @@ METADATA_FIELDS = [
     ("Training Effect (Anaerobic)", "training_effect_anaerobic"),
     ("Training Load", "training_load"),
     ("Recovery Time (hr)", "recovery_time_hr"),
+    ("Garmin Activity ID", "garmin_activity_id"),
+    ("FIT SHA-256", "fit_sha256"),
     ("備註", "notes"),
 ]
 
@@ -154,6 +158,19 @@ def first_number(row, *fields):
         if isinstance(value, (int, float)):
             return value
     return None
+
+
+def parse_garmin_activity_id(path: Path):
+    numbers = re.findall(r"\d{10,}", path.stem)
+    return numbers[0] if numbers else ""
+
+
+def fit_sha256(path: Path):
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def load_dropdown_options(path=DROPDOWN_CONFIG_PATH):
@@ -526,6 +543,13 @@ def apply_fit_metadata(metadata, messages):
     return result
 
 
+def apply_file_identity(metadata, fit_path: Path):
+    result = dict(metadata)
+    result["garmin_activity_id"] = parse_garmin_activity_id(fit_path)
+    result["fit_sha256"] = fit_sha256(fit_path)
+    return result
+
+
 def coerce_metadata(metadata):
     result = dict(metadata)
     for key in (
@@ -658,6 +682,8 @@ def add_metadata_sheet(wb, metadata, fit_path, session, dropdown_options):
         value = session.get("training_load_peak")
         if isinstance(value, (int, float)):
             metadata["training_load"] = round(float(value))
+    metadata["garmin_activity_id"] = metadata.get("garmin_activity_id", "")
+    metadata["fit_sha256"] = metadata.get("fit_sha256", "")
     ws = wb.create_sheet("活動資訊", 0)
     ws["A1"] = "活動資訊"
     ws["A1"].font = Font(name="Arial", size=14, bold=True, color="FFFFFF")
@@ -797,7 +823,8 @@ def create_workbook(fit_path: Path, output_path: Path, metadata=None, fetch_weat
     rows, session = build_rows(messages)
     if not rows:
         raise RuntimeError("No lap data found in FIT file.")
-    metadata = apply_fit_metadata(metadata or {}, messages)
+    metadata = apply_file_identity(metadata or {}, fit_path)
+    metadata = apply_fit_metadata(metadata, messages)
     metadata = apply_auto_weather(metadata, session, messages.get("record_mesgs", []), fetch_weather)
     metadata = coerce_metadata(metadata)
 
