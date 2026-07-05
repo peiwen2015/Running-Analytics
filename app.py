@@ -366,6 +366,7 @@ def save_uploaded_fit(upload):
 
 def build_metadata(form):
     return {
+        "activity_name": first_value(form, "activity_name"),
         "shoe": first_value(form, "shoe"),
         "weather_temp": parse_number(first_value(form, "weather_temp")),
         "humidity": parse_number(first_value(form, "humidity")),
@@ -938,6 +939,7 @@ def render_page(message="", error="", selected_fit=""):
       <fieldset>
         <legend>活動資訊</legend>
         <div class="grid">
+          {input_field("活動名稱", "activity_name", placeholder="可留空")}
           <label>
             <span>鞋款</span>
             <select name="shoe">{option_tags(dropdown_options["shoes"])}</select>

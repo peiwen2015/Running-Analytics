@@ -119,6 +119,10 @@ def rounded(value, ndigits=1):
     return round(float(value), ndigits)
 
 
+def cell_value(value):
+    return "" if value is None else value
+
+
 def average(values, ndigits=1):
     vals = [float(v) for v in values if isinstance(v, (int, float))]
     return round(mean(vals), ndigits) if vals else None
@@ -468,6 +472,7 @@ def prompt_text(label):
 
 def collect_metadata(args, dropdown_options):
     metadata = {
+        "activity_name": args.activity_name or "",
         "shoe": args.shoe or "",
         "weather_temp": args.weather_temp if args.weather_temp is not None else "",
         "humidity": args.humidity if args.humidity is not None else "",
@@ -489,6 +494,8 @@ def collect_metadata(args, dropdown_options):
     if not args.interactive:
         return metadata
 
+    if not metadata["activity_name"]:
+        metadata["activity_name"] = prompt_text("活動名稱")
     if not metadata["shoe"]:
         metadata["shoe"] = prompt_choice("鞋款", dropdown_options["shoes"])
     if not args.fetch_weather and metadata["weather_temp"] == "":
@@ -603,13 +610,41 @@ def activity_date(session, fit_path: Path):
 
 
 def activity_type(session):
+    profile_name = session.get("sport_profile_name")
+    if profile_name not in ("", None):
+        return str(profile_name)
+
     sport = session.get("sport")
     sub_sport = session.get("sub_sport")
-    values = []
-    for value in (sport, sub_sport):
-        if value not in ("", None, "generic") and value not in values:
-            values.append(str(value))
+    sport_labels = {
+        "running": "跑步",
+        "cycling": "自行車",
+        "walking": "健走",
+        "hiking": "健行",
+        "swimming": "游泳",
+    }
+    sub_sport_labels = {
+        "trail": "越野跑",
+        "trail_running": "越野跑",
+        "treadmill": "跑步機",
+        "track": "田徑場跑步",
+    }
+    if sub_sport in sub_sport_labels:
+        return sub_sport_labels[sub_sport]
+    if sport in sport_labels:
+        return sport_labels[sport]
+    values = [str(value) for value in (sport, sub_sport) if value not in ("", None, "generic")]
     return " / ".join(values)
+
+
+def activity_name(session, metadata):
+    if metadata.get("activity_name") not in ("", None):
+        return metadata.get("activity_name")
+    for key in ("activity_name", "name", "workout_name", "title"):
+        value = session.get(key)
+        if value not in ("", None):
+            return value
+    return ""
 
 
 def duration_text(seconds):
@@ -775,6 +810,7 @@ def add_metadata_sheet(wb, metadata, fit_path, session, rows, dropdown_options):
                 ("活動日期", activity_date(session, fit_path), "activity_date"),
                 ("開始時間", start.astimezone().strftime("%H:%M:%S") if start else "", "start_time"),
                 ("活動類型", activity_type(session), "activity_type"),
+                ("活動名稱", activity_name(session, metadata), "activity_name"),
                 ("距離 (km)", activity["distance_km"], "distance_km"),
                 ("時間", activity["duration"], "duration"),
                 ("平均配速", activity["avg_pace"], "avg_pace"),
@@ -826,9 +862,9 @@ def add_metadata_sheet(wb, metadata, fit_path, session, rows, dropdown_options):
             "DDEBF7",
             [
                 ("平均步頻", economy["avg_cadence"], "avg_cadence"),
-                ("平均步幅", economy["avg_step_length"], "avg_step_length"),
-                ("平均觸地時間 (GCT)", economy["avg_gct"], "avg_gct"),
-                ("平均垂直振幅", economy["avg_vertical_oscillation"], "avg_vertical_oscillation"),
+                ("平均步幅 (mm)", economy["avg_step_length"], "avg_step_length"),
+                ("平均觸地時間 GCT (ms)", economy["avg_gct"], "avg_gct"),
+                ("平均垂直振幅 (mm)", economy["avg_vertical_oscillation"], "avg_vertical_oscillation"),
                 ("平均垂直比", economy["avg_vertical_ratio"], "avg_vertical_ratio"),
             ],
         ),
@@ -855,7 +891,7 @@ def add_metadata_sheet(wb, metadata, fit_path, session, rows, dropdown_options):
         current_row += 1
         for label, value, key in rows:
             ws.cell(current_row, 1, label)
-            ws.cell(current_row, 2, value)
+            ws.cell(current_row, 2, cell_value(value))
             row_by_key[key] = current_row
             row_fills[current_row] = fill_color
             current_row += 1
@@ -1022,6 +1058,7 @@ def main():
     parser.add_argument("--fetch-weather", dest="fetch_weather", action="store_true", help="Fetch weather from Open-Meteo using FIT start time and GPS location. Enabled by default.")
     parser.add_argument("--no-fetch-weather", dest="fetch_weather", action="store_false", help="Skip automatic weather lookup.")
     parser.add_argument("--dropdown-config", type=Path, default=DROPDOWN_CONFIG_PATH, help="JSON file for dropdown options.")
+    parser.add_argument("--activity-name", help="Activity name shown in the Activity section.")
     parser.add_argument("--shoe", help="Shoe name, e.g. 'Boston 13 Green'.")
     parser.add_argument("--weather-temp", type=float, help="Weather temperature in Celsius.")
     parser.add_argument("--humidity", type=float, help="Humidity percentage.")
