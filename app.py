@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import html
 import json
+import mimetypes
 import socket
 import os
 import sys
@@ -27,6 +28,7 @@ from fit_to_excel import (
 
 ROOT = Path(__file__).resolve().parent
 FIT_DIR = ROOT / "FIT"
+ASSETS_DIR = ROOT / "assets"
 HOST = "127.0.0.1"
 PORT = 8765
 EXCEL_FORMAT_VERSION = WORKBOOK_VERSION_NAME
@@ -448,12 +450,17 @@ def workout_focus_reference_table(dropdown_options):
     """
 
 
-def product_banner(title="Running Analytics Converter"):
+def product_banner(title="跑步分析資料轉檔"):
     return f"""
       <section class="product-banner">
         <div class="banner-copy">
-          <p class="eyebrow">Personal Running Intelligence Platform</p>
-          <h1>{html.escape(title)}</h1>
+          <div class="brand-row">
+            <img class="brand-mark" src="/assets/rac_mark_transparent.png" alt="RAC">
+            <div>
+              <h1>{html.escape(title)}</h1>
+              <p class="brand-subtitle">RUNNING ANALYTICS CONVERTER</p>
+            </div>
+          </div>
           <p class="banner-subtitle">Garmin FIT -> Standardized Excel -> AI Coach Analysis</p>
           <div class="flow">
             <span>FIT Import</span>
@@ -532,8 +539,11 @@ def base_styles():
       padding: 28px 32px;
       border-radius: 18px;
       color: #fff;
-      background: linear-gradient(135deg, #063a4c 0%, #0b6467 58%, #0f766e 100%);
+      background:
+        linear-gradient(90deg, rgba(3, 33, 48, 0.7) 0%, rgba(5, 55, 65, 0.38) 46%, rgba(5, 87, 88, 0.2) 100%),
+        url("/assets/rac_banner.png") center / cover no-repeat;
       box-shadow: 0 18px 48px rgba(11, 79, 95, 0.22);
+      min-height: 286px;
     }
     .eyebrow {
       margin: 0 0 8px;
@@ -545,11 +555,29 @@ def base_styles():
     }
     .product-banner h1 {
       margin: 0;
-      font-size: 34px;
+      font-size: 42px;
       line-height: 1.15;
+      text-shadow: 0 2px 12px rgba(0, 0, 0, 0.24);
+    }
+    .brand-row {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+    }
+    .brand-mark {
+      width: min(320px, 32vw);
+      height: auto;
+      filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.28));
+    }
+    .brand-subtitle {
+      margin: 8px 0 0;
+      color: rgba(220, 236, 242, 0.76);
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
     }
     .banner-subtitle {
-      margin: 8px 0 0;
+      margin: 18px 0 0;
       font-size: 16px;
       color: rgba(255, 255, 255, 0.86);
     }
@@ -596,6 +624,8 @@ def base_styles():
       gap: 8px;
       min-width: 180px;
       justify-items: end;
+      position: relative;
+      z-index: 1;
     }
     .version-panel span {
       display: inline-flex;
@@ -820,8 +850,17 @@ def base_styles():
         grid-template-columns: 1fr;
         padding: 22px;
         border-radius: 14px;
+        min-height: 0;
       }
-      .product-banner h1 { font-size: 28px; }
+      .brand-row {
+        display: grid;
+        gap: 12px;
+      }
+      .brand-mark {
+        width: min(260px, 78vw);
+      }
+      .product-banner h1 { font-size: 30px; }
+      .brand-subtitle { font-size: 14px; }
       .version-panel {
         justify-items: start;
         grid-template-columns: repeat(2, minmax(0, auto));
@@ -1083,7 +1122,7 @@ def render_options_page(message="", error=""):
 </head>
 <body>
   <main>
-    {product_banner("Running Analytics Settings")}
+    {product_banner("下拉選單設定")}
     <p class="subtitle">先修改活動資訊選項並儲存，再設定課表類型與訓練目的的對應關係。儲存後會立即套用到轉檔頁與輸出的 Excel。</p>
     {nav("options")}
     {status_html(message, error)}
@@ -1131,9 +1170,30 @@ class AppHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def send_asset(self, path):
+        try:
+            resolved = path.resolve()
+            asset_root = ASSETS_DIR.resolve()
+            if not resolved.is_file() or not resolved.is_relative_to(asset_root):
+                raise FileNotFoundError
+            data = resolved.read_bytes()
+        except (OSError, FileNotFoundError):
+            self.send_html(render_page(error="找不到指定的介面資產。"), status=404)
+            return
+        content_type = mimetypes.guess_type(str(resolved))[0] or "application/octet-stream"
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        self.wfile.write(data)
+
     def do_GET(self):
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
+        if parsed.path.startswith("/assets/"):
+            self.send_asset(ASSETS_DIR / parsed.path.removeprefix("/assets/"))
+            return
         if parsed.path == "/options":
             self.send_html(render_options_page())
             return
