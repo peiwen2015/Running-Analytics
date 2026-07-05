@@ -21,16 +21,20 @@
     "Other（其他）"
   ],
   "training_focus": [
-    "Recovery",
-    "Aerobic Base",
-    "Endurance",
-    "Marathon Pace",
-    "Threshold",
+    "Recovery（恢復）",
+    "Aerobic Base（有氧基礎）",
+    "Endurance（耐力）",
+    "Marathon Pace（馬拉松配速）",
+    "Threshold（乳酸閾值）",
     "VO₂max",
-    "Speed",
-    "Running Economy",
-    "Heat Adaptation",
-    "Race"
+    "Speed（速度）",
+    "Neuromuscular（神經肌肉活化）",
+    "Running Economy（跑步經濟性）",
+    "Running Form（跑姿技術）",
+    "Heat Adaptation（高溫適應）",
+    "Race Simulation（比賽模擬）",
+    "Taper（減量）",
+    "Test（測驗）"
   ],
   "garmin_rpe": [
     "非常輕鬆 (Very Easy)",
@@ -40,5 +44,43 @@
     "困難 (Hard)",
     "非常困難 (Very Hard)",
     "極限 (Maximum)"
-  ]
+  ],
+  "workout_focus_map": {
+    "Recovery Run（恢復跑）": [
+      "Recovery（恢復）"
+    ],
+    "Easy Run（輕鬆跑）": [
+      "Aerobic Base（有氧基礎）"
+    ],
+    "LSD（長距離慢跑）": [
+      "Endurance（耐力）"
+    ],
+    "Long Run（長跑）": [
+      "Endurance（耐力）"
+    ],
+    "Tempo Run（節奏跑）": [
+      "Threshold（乳酸閾值）"
+    ],
+    "Marathon Pace（馬拉松配速）": [
+      "Marathon Pace（馬拉松配速）"
+    ],
+    "Interval（間歇）": [
+      "VO₂max"
+    ],
+    "Repetition（速度訓練）": [
+      "Speed（速度）"
+    ],
+    "Progression Run（漸速跑）": [
+      "Endurance（耐力）"
+    ],
+    "Fartlek（法特萊克）": [
+      "Speed（速度）",
+      "VO₂max"
+    ],
+    "Race（比賽）": [
+      "Race Simulation（比賽模擬）",
+      "Test（測驗）"
+    ],
+    "Other（其他）": []
+  }
 }
