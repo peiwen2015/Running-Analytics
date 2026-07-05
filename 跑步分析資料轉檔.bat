@@ -1,10 +1,10 @@
 @echo off
-chcp 65001 >nul
 setlocal
 
 cd /d "%~dp0"
 
 set "PYTHON_CMD="
+set "VENV_PY=.venv\Scripts\python.exe"
 
 where py >nul 2>nul
 if not errorlevel 1 (
@@ -19,44 +19,55 @@ if not errorlevel 1 (
 if "%PYTHON_CMD%"=="" (
   echo.
   echo [Running Analytics Converter]
-  echo 找不到 Python，無法啟動跑步分析資料轉檔工具。
+  echo Python was not found, so the app cannot start.
   echo.
-  echo 請先安裝 Python 3.11 以上：
+  echo Please install Python 3.11 or newer:
   echo https://www.python.org/downloads/windows/
   echo.
-  echo 安裝時請務必勾選：
+  echo During installation, please check this option:
   echo Add python.exe to PATH
   echo.
-  echo 安裝完成後，請關閉這個視窗，再重新雙擊本檔案。
+  echo After installing Python, close this window and double-click this BAT file again.
   echo.
   pause
   exit /b 1
 )
 
-if not exist ".venv\Scripts\python.exe" (
-  echo 建立 Python 虛擬環境...
+if not exist "%VENV_PY%" (
+  echo Creating Python virtual environment...
   %PYTHON_CMD% -m venv .venv
   if errorlevel 1 (
     echo.
-    echo 建立虛擬環境失敗。
-    echo 請確認已安裝 Python 3.11 以上，並且安裝時有勾選 Add python.exe to PATH。
+    echo Failed to create the virtual environment.
+    echo Please make sure Python 3.11 or newer is installed and added to PATH.
     echo.
     pause
     exit /b 1
   )
 )
 
-echo 安裝或更新必要套件...
-".venv\Scripts\python.exe" -m pip install -r requirements.txt
-if errorlevel 1 (
+if not exist "%VENV_PY%" (
   echo.
-  echo 套件安裝失敗。請確認網路連線正常後再試一次。
+  echo The virtual environment Python was not found:
+  echo %VENV_PY%
+  echo.
+  echo Please delete the .venv folder and run this BAT file again.
   echo.
   pause
   exit /b 1
 )
 
-echo 啟動 Running Analytics Converter...
-".venv\Scripts\python.exe" app.py
+echo Installing or updating required packages...
+"%VENV_PY%" -m pip install -r requirements.txt
+if errorlevel 1 (
+  echo.
+  echo Package installation failed. Please check your internet connection and try again.
+  echo.
+  pause
+  exit /b 1
+)
+
+echo Starting Running Analytics Converter...
+"%VENV_PY%" app.py
 
 endlocal
