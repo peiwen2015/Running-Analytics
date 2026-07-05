@@ -20,7 +20,7 @@ from openpyxl.utils import get_column_letter
 
 
 FIT_EPOCH = 631065600
-APP_VERSION = "1.4.2"
+APP_VERSION = "1.4.3"
 WORKBOOK_VERSION_NAME = "跑步分析資料 v1.1"
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent / "EXCEL"
 CONFIG_DIR = Path(__file__).resolve().parent / "config"
@@ -73,7 +73,7 @@ DEFAULT_DROPDOWN_OPTIONS = {
     "極限 (Maximum)",
     ],
 }
-WEATHER_FIELDS = ("weather_temp", "humidity", "wind_direction", "wind_speed")
+WEATHER_FIELDS = ("weather_temp", "humidity", "wind_direction", "wind_speed", "weather_description")
 
 
 HEADERS = [
@@ -213,6 +213,42 @@ def compass_direction(degrees):
     return labels[index]
 
 
+def weather_code_description(code):
+    descriptions = {
+        0: "晴",
+        1: "大致晴朗",
+        2: "局部多雲",
+        3: "陰",
+        45: "霧",
+        48: "霧淞",
+        51: "毛毛雨",
+        53: "毛毛雨",
+        55: "毛毛雨",
+        56: "凍毛毛雨",
+        57: "凍毛毛雨",
+        61: "小雨",
+        63: "中雨",
+        65: "大雨",
+        66: "凍雨",
+        67: "凍雨",
+        71: "小雪",
+        73: "中雪",
+        75: "大雪",
+        77: "雪粒",
+        80: "陣雨",
+        81: "陣雨",
+        82: "強陣雨",
+        85: "陣雪",
+        86: "強陣雪",
+        95: "雷雨",
+        96: "雷雨伴冰雹",
+        99: "雷雨伴冰雹",
+    }
+    if not isinstance(code, (int, float)):
+        return ""
+    return descriptions.get(int(code), "")
+
+
 def nearest_hour_index(times, target):
     best_index = None
     best_seconds = None
@@ -264,6 +300,7 @@ def fetch_weather_for_activity(session, records):
                 "relative_humidity_2m",
                 "wind_speed_10m",
                 "wind_direction_10m",
+                "weather_code",
             ]
         ),
         "timezone": "UTC",
@@ -293,6 +330,7 @@ def fetch_weather_for_activity(session, records):
         "wind_speed": f"{rounded(hourly_value('wind_speed_10m'), 1)} km/h"
         if hourly_value("wind_speed_10m") is not None
         else "",
+        "weather_description": weather_code_description(hourly_value("weather_code")),
     }
     return {key: value for key, value in weather.items() if value not in ("", None)}
 
@@ -435,6 +473,7 @@ def collect_metadata(args, dropdown_options):
         "humidity": args.humidity if args.humidity is not None else "",
         "wind_direction": args.wind_direction or "",
         "wind_speed": args.wind_speed or "",
+        "weather_description": args.weather_description or "",
         "workout_type": args.workout_type or "",
         "training_focus": args.training_focus or "",
         "rpe": normalize_rpe(args.rpe, dropdown_options["garmin_rpe"]),
@@ -460,6 +499,8 @@ def collect_metadata(args, dropdown_options):
         metadata["wind_direction"] = prompt_text("風向")
     if not args.fetch_weather and not metadata["wind_speed"]:
         metadata["wind_speed"] = prompt_text("風速")
+    if not args.fetch_weather and not metadata["weather_description"]:
+        metadata["weather_description"] = prompt_text("天氣描述")
     if not metadata["workout_type"]:
         metadata["workout_type"] = prompt_choice("課表類型", dropdown_options["workout_types"])
     if not metadata["training_focus"]:
@@ -571,6 +612,43 @@ def activity_type(session):
     return " / ".join(values)
 
 
+def duration_text(seconds):
+    if not isinstance(seconds, (int, float)):
+        return ""
+    total = int(round(float(seconds)))
+    hours, remainder = divmod(total, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours:
+        return f"{hours}:{minutes:02d}:{seconds:02d}"
+    return f"{minutes}:{seconds:02d}"
+
+
+def activity_summary(rows):
+    total_distance = sum(row[1] for row in rows if isinstance(row[1], (int, float)))
+    total_seconds = sum(row[2] for row in rows if isinstance(row[2], (int, float)))
+    return {
+        "distance_km": round(total_distance / 1000, 2) if total_distance else "",
+        "duration": duration_text(total_seconds),
+        "avg_pace": pace_text(total_seconds, total_distance) if total_distance and total_seconds else "",
+    }
+
+
+def running_economy_summary(rows):
+    return {
+        "avg_cadence": average([row[7] for row in rows], 1),
+        "avg_step_length": average([row[13] for row in rows], 1),
+        "avg_gct": average([row[12] for row in rows], 1),
+        "avg_vertical_oscillation": average([row[10] for row in rows], 1),
+        "avg_vertical_ratio": average([row[11] for row in rows], 1),
+    }
+
+
+def stamina_summary(rows):
+    if not rows:
+        return "", ""
+    return rows[0][15], rows[-1][16]
+
+
 def apply_styles(ws, last_row):
     blue = PatternFill("solid", fgColor="1F4E78")
     total_fill = PatternFill("solid", fgColor="D9EAF7")
@@ -654,7 +732,7 @@ def add_options_sheet(wb, dropdown_options):
     return ws
 
 
-def add_metadata_sheet(wb, metadata, fit_path, session, dropdown_options):
+def add_metadata_sheet(wb, metadata, fit_path, session, rows, dropdown_options):
     metadata = coerce_metadata(metadata)
     if metadata.get("rpe", "") == "":
         metadata["rpe"] = garmin_rpe_label(session.get("workout_rpe"), dropdown_options["garmin_rpe"])
@@ -674,6 +752,9 @@ def add_metadata_sheet(wb, metadata, fit_path, session, dropdown_options):
             metadata["training_load"] = round(float(value))
 
     start = fit_datetime(session.get("start_time") or session.get("timestamp"))
+    activity = activity_summary(rows)
+    economy = running_economy_summary(rows)
+    stamina_start, stamina_end = stamina_summary(rows)
     metadata_sections = [
         (
             "Metadata",
@@ -694,6 +775,9 @@ def add_metadata_sheet(wb, metadata, fit_path, session, dropdown_options):
                 ("活動日期", activity_date(session, fit_path), "activity_date"),
                 ("開始時間", start.astimezone().strftime("%H:%M:%S") if start else "", "start_time"),
                 ("活動類型", activity_type(session), "activity_type"),
+                ("距離 (km)", activity["distance_km"], "distance_km"),
+                ("時間", activity["duration"], "duration"),
+                ("平均配速", activity["avg_pace"], "avg_pace"),
                 ("課表類型", metadata.get("workout_type", ""), "workout_type"),
                 ("訓練目的", metadata.get("training_focus", ""), "training_focus"),
                 ("鞋款", metadata.get("shoe", ""), "shoe"),
@@ -708,6 +792,7 @@ def add_metadata_sheet(wb, metadata, fit_path, session, dropdown_options):
                 ("濕度 (%)", metadata.get("humidity", ""), "humidity"),
                 ("風向", metadata.get("wind_direction", ""), "wind_direction"),
                 ("風速", metadata.get("wind_speed", ""), "wind_speed"),
+                ("天氣描述", metadata.get("weather_description", ""), "weather_description"),
             ],
         ),
         (
@@ -731,6 +816,20 @@ def add_metadata_sheet(wb, metadata, fit_path, session, dropdown_options):
                 ("Training Effect (Anaerobic)", metadata.get("training_effect_anaerobic", ""), "training_effect_anaerobic"),
                 ("Training Load", metadata.get("training_load", ""), "training_load"),
                 ("Recovery Time (hr)", metadata.get("recovery_time_hr", ""), "recovery_time_hr"),
+                ("Stamina 起始 (%)", stamina_start, "stamina_start"),
+                ("Stamina 結束 (%)", stamina_end, "stamina_end"),
+            ],
+        ),
+        (
+            "Running Economy",
+            "156082",
+            "DDEBF7",
+            [
+                ("平均步頻", economy["avg_cadence"], "avg_cadence"),
+                ("平均步幅", economy["avg_step_length"], "avg_step_length"),
+                ("平均觸地時間 (GCT)", economy["avg_gct"], "avg_gct"),
+                ("平均垂直振幅", economy["avg_vertical_oscillation"], "avg_vertical_oscillation"),
+                ("平均垂直比", economy["avg_vertical_ratio"], "avg_vertical_ratio"),
             ],
         ),
     ]
@@ -749,8 +848,9 @@ def add_metadata_sheet(wb, metadata, fit_path, session, dropdown_options):
         ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=2)
         ws.cell(current_row, 1, section_name)
         ws.cell(current_row, 1).fill = PatternFill("solid", fgColor=header_color)
-        ws.cell(current_row, 1).font = Font(name="Arial", bold=True, color="FFFFFF")
-        ws.cell(current_row, 1).alignment = Alignment(horizontal="left")
+        ws.cell(current_row, 1).font = Font(name="Arial", size=12, bold=True, color="FFFFFF")
+        ws.cell(current_row, 1).alignment = Alignment(horizontal="left", vertical="center")
+        ws.row_dimensions[current_row].height = 22
         section_rows[current_row] = header_color
         current_row += 1
         for label, value, key in rows:
@@ -896,7 +996,7 @@ def create_workbook(fit_path: Path, output_path: Path, metadata=None, fetch_weat
     wb = Workbook()
     ws = wb.active
     ws.title = "每公里數據"
-    add_metadata_sheet(wb, metadata, fit_path, session, dropdown_options)
+    add_metadata_sheet(wb, metadata, fit_path, session, rows, dropdown_options)
     date_label = activity_date(session, fit_path)
     ws["A1"] = f"{WORKBOOK_VERSION_NAME} - {date_label} (資料來源: {fit_path.name})"
     ws.append(HEADERS)
@@ -927,6 +1027,7 @@ def main():
     parser.add_argument("--humidity", type=float, help="Humidity percentage.")
     parser.add_argument("--wind-direction", help="Wind direction.")
     parser.add_argument("--wind-speed", help="Wind speed, e.g. '12 km/h'.")
+    parser.add_argument("--weather-description", help="Weather description, e.g. sunny, cloudy, light rain.")
     parser.add_argument("--workout-type", help="Workout type, e.g. Recovery, Tempo, LSD, Intervals.")
     parser.add_argument("--training-focus", help="Training focus, e.g. Aerobic, Threshold, VO2max.")
     parser.add_argument("--rpe", help="Garmin RPE, e.g. 3, 30, or '3 - 中等 (Moderate)'.")

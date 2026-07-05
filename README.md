@@ -2,7 +2,7 @@
 
 把 Garmin Connect 匯出的 Original FIT 活動檔轉成固定格式的 Excel：`跑步分析資料 v1.1`。
 
-目前 App 版本：`v1.4.2`  
+目前 App 版本：`v1.4.3`  
 目前 Excel 格式版本：`跑步分析資料 v1.1`
 
 這個專案的目的不是只看單次活動，而是長期累積一致格式的跑步資料，之後可以比較鞋款、天氣、心率、功率、Stamina 消耗、跑姿指標與訓練效果。
@@ -176,6 +176,9 @@ Activity
 活動日期
 開始時間
 活動類型
+距離 (km)
+時間
+平均配速
 課表類型
 訓練目的
 鞋款
@@ -185,6 +188,7 @@ Environment
 濕度 (%)
 風向
 風速
+天氣描述
 
 Subjective
 Garmin 主觀感受
@@ -198,6 +202,15 @@ Training Effect (Aerobic)
 Training Effect (Anaerobic)
 Training Load
 Recovery Time (hr)
+Stamina 起始 (%)
+Stamina 結束 (%)
+
+Running Economy
+平均步頻
+平均步幅
+平均觸地時間 (GCT)
+平均垂直振幅
+平均垂直比
 ```
 
 `每公里數據` 目前維持 18 欄：

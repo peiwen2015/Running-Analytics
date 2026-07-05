@@ -194,7 +194,10 @@ def weather_summary(info):
     humidity = info.get("濕度 (%)", info.get("濕度(%)"))
     wind_direction = info.get("風向")
     wind_speed = info.get("風速")
+    weather_description = info.get("天氣描述")
     parts = []
+    if weather_description not in ("", None):
+        parts.append(str(weather_description))
     if temp not in ("", None):
         parts.append(f"{temp}°C")
     if humidity not in ("", None):
@@ -368,6 +371,7 @@ def build_metadata(form):
         "humidity": parse_number(first_value(form, "humidity")),
         "wind_direction": first_value(form, "wind_direction"),
         "wind_speed": first_value(form, "wind_speed"),
+        "weather_description": first_value(form, "weather_description"),
         "workout_type": first_value(form, "workout_type"),
         "training_focus": "、".join(selected_values(form, "training_focus")),
         "rpe": first_value(form, "rpe"),
@@ -957,6 +961,7 @@ def render_page(message="", error="", selected_fit=""):
           {input_field("濕度(%)", "humidity", input_type="number", placeholder="自動")}
           {input_field("風向", "wind_direction", placeholder="自動")}
           {input_field("風速", "wind_speed", placeholder="自動")}
+          {input_field("天氣描述", "weather_description", placeholder="自動")}
           {input_field("Recovery Time (hr)", "recovery_time_hr", input_type="number")}
           {input_field("Training Load", "training_load", input_type="number", placeholder="自動")}
           <label class="wide">
