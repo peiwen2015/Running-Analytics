@@ -2,7 +2,7 @@
 
 把 Garmin Connect 匯出的 Original FIT 活動檔轉成固定格式的 Excel：`跑步分析資料 v1.1`。
 
-目前 App 版本：`v1.4.3`  
+目前 App 版本：`v1.5.0`  
 目前 Excel 格式版本：`跑步分析資料 v1.1`
 
 ## Running Analytics Data Schema v1.1

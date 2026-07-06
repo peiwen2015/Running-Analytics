@@ -505,7 +505,7 @@ def download_running_fit_by_date_range(email, password, start_date, end_date, ta
             progress(f"已下載：{target.name}", current, len(running_activities), "running")
 
     if progress:
-        progress("下載完成。", len(running_activities), len(running_activities), "done")
+        progress("整理下載結果...", len(running_activities), len(running_activities), "running")
 
     return {
         "start_date": start_date,
@@ -643,6 +643,13 @@ def download_job_result_html(job):
     skipped = result.get("skipped") or []
     downloaded_count = len(downloaded)
     skipped_count = len(skipped)
+    target_dir = result.get("target_dir", "")
+    folder_fit_count = 0
+    if target_dir:
+        try:
+            folder_fit_count = len(list(Path(target_dir).glob("*.fit")))
+        except OSError:
+            folder_fit_count = 0
     latest_names = [relative_fit_path(path) for path in downloaded[:8]]
     if latest_names:
         downloaded_list = "<br>".join(f"<code>{html.escape(name)}</code>" for name in latest_names)
@@ -650,12 +657,12 @@ def download_job_result_html(job):
             downloaded_list += f"<br>...另有 {downloaded_count - len(latest_names)} 個檔案"
     else:
         downloaded_list = "沒有新增檔案"
-    target_dir = result.get("target_dir", "")
     target_month = job.get("target_month", "")
     return (
         f"{html.escape(target_month)} 下載完成：找到 {result.get('total', 0)} 個跑步活動，"
         f"新增 {downloaded_count} 個，已存在略過 {skipped_count} 個。<br>"
         f"儲存位置：<code>{html.escape(str(target_dir))}</code><br>"
+        f"此月份資料夾目前共有 {folder_fit_count} 個 FIT 檔。<br>"
         f"{downloaded_list}<br><br>"
         f'<a class="button" href="/">回轉檔頁</a> '
         f'<a class="button secondary" href="/download-fit">下載其他月份</a>'
@@ -680,8 +687,11 @@ def download_job_snapshot(job_id):
         "error": job.get("error", ""),
         "result_html": "",
     }
-    if snapshot["status"] == "done":
+    if snapshot["status"] == "done" and "result" in job:
         snapshot["result_html"] = download_job_result_html(job)
+    elif snapshot["status"] == "done":
+        snapshot["status"] = "running"
+        snapshot["message"] = "整理下載結果..."
     return snapshot
 
 
