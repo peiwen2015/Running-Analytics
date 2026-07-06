@@ -167,6 +167,61 @@ def fit_sha256(path: Path):
     return digest.hexdigest()
 
 
+def first_session(messages):
+    sessions = messages.get("session_mesgs", []) if messages else []
+    return sessions[0] if sessions else {}
+
+
+def path_date_code(path: Path):
+    for match in re.finditer(r"(\d{4})(\d{2})(\d{2})", path.stem):
+        month = int(match.group(2))
+        day = int(match.group(3))
+        if 1 <= month <= 12 and 1 <= day <= 31:
+            return "".join(match.groups())
+    return ""
+
+
+def fit_activity_date_code(path: Path, messages=None):
+    if messages is None:
+        existing = path_date_code(path)
+        if existing:
+            return existing
+        messages = decode_fit(path)
+    session = first_session(messages)
+    start = fit_datetime(session.get("start_time") or session.get("timestamp"))
+    if start:
+        return start.astimezone().strftime("%Y%m%d")
+    return path_date_code(path) or dt.date.today().strftime("%Y%m%d")
+
+
+def fit_activity_identifier(path: Path):
+    activity_id = parse_garmin_activity_id(path)
+    if activity_id:
+        return str(activity_id)
+    return f"FIT{fit_sha256(path)[:12]}"
+
+
+def output_file_stem(path: Path, messages=None):
+    if messages is None and path_date_code(path) and parse_garmin_activity_id(path):
+        return f"{path_date_code(path)}_{fit_activity_identifier(path)}"
+    return f"{fit_activity_date_code(path, messages)}_{fit_activity_identifier(path)}"
+
+
+def output_month_label(path: Path, messages=None):
+    if re.fullmatch(r"\d{4}-\d{2}", path.parent.name):
+        return path.parent.name
+    existing = path_date_code(path)
+    if existing:
+        return f"{existing[:4]}-{existing[4:6]}"
+    date_code = fit_activity_date_code(path, messages)
+    return f"{date_code[:4]}-{date_code[4:6]}"
+
+
+def default_output_path(fit_path: Path):
+    messages = None if path_date_code(fit_path) and parse_garmin_activity_id(fit_path) else decode_fit(fit_path)
+    return DEFAULT_OUTPUT_DIR / output_month_label(fit_path, messages) / f"{WORKBOOK_VERSION_NAME}_{output_file_stem(fit_path, messages)}.xlsx"
+
+
 def load_dropdown_options(path=DROPDOWN_CONFIG_PATH):
     options = {key: list(value) for key, value in DEFAULT_DROPDOWN_OPTIONS.items()}
     if not path.exists():
@@ -1132,7 +1187,7 @@ def main():
 
     output = args.output
     if output is None:
-        output = DEFAULT_OUTPUT_DIR / f"{WORKBOOK_VERSION_NAME}_{args.fit_file.stem}.xlsx"
+        output = default_output_path(args.fit_file)
 
     dropdown_options = load_dropdown_options(args.dropdown_config)
     metadata = collect_metadata(args, dropdown_options)
