@@ -6,6 +6,7 @@ import datetime as dt
 import hashlib
 import json
 import re
+import sqlite3
 from pathlib import Path
 from statistics import mean
 from urllib.parse import urlencode
@@ -25,6 +26,7 @@ WORKBOOK_VERSION_NAME = "跑步分析資料 v1.1"
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent / "EXCEL"
 CONFIG_DIR = Path(__file__).resolve().parent / "config"
 DROPDOWN_CONFIG_PATH = CONFIG_DIR / "dropdown_options.json"
+SQLITE_SCHEMA_PATH = Path(__file__).resolve().parent / "docs" / "20_Physical_Model" / "SQLite Schema v1.0.sql"
 STAMINA_RECORD_FIELDS = (137, 138)
 STAMINA_SESSION_START = 205
 STAMINA_SESSION_END_FIELDS = (206, 207)
@@ -85,6 +87,77 @@ DEFAULT_DROPDOWN_OPTIONS = {
 }
 WEATHER_FIELDS = ("weather_temp", "humidity", "wind_direction", "wind_speed", "weather_description")
 
+SHOE_DIMENSION_DEFAULTS = {
+    "Boston 13 Green": {
+        "shoe_code": "boston_13_green",
+        "brand": "adidas",
+        "model": "Boston 13",
+        "nickname": "Green",
+        "category": "Tempo",
+    },
+    "Boston 13 Blue": {
+        "shoe_code": "boston_13_blue",
+        "brand": "adidas",
+        "model": "Boston 13",
+        "nickname": "Blue",
+        "category": "Tempo",
+    },
+    "EVO SL": {
+        "shoe_code": "evo_sl",
+        "brand": "adidas",
+        "model": "EVO SL",
+        "nickname": None,
+        "category": "Race",
+    },
+    "Rebel v5": {
+        "shoe_code": "rebel_v5",
+        "brand": "New Balance",
+        "model": "Rebel v5",
+        "nickname": None,
+        "category": "Tempo",
+    },
+    "Nimbus 28": {
+        "shoe_code": "nimbus_28",
+        "brand": "ASICS",
+        "model": "Nimbus 28",
+        "nickname": None,
+        "category": "Recovery",
+    },
+}
+
+WORKOUT_TYPE_DIMENSION_DEFAULTS = {
+    "Recovery Run": ("recovery_run", "Recovery Run", "恢復跑", "Recovery", 0, 0, 1, 10, "#7CB7B8"),
+    "Easy Run": ("easy_run", "Easy Run", "輕鬆跑", "Easy", 0, 0, 0, 20, "#6FA8DC"),
+    "LSD": ("lsd", "LSD", "長距離慢跑", "Easy", 0, 1, 0, 30, "#93C47D"),
+    "Long Run": ("long_run", "Long Run", "長跑", "Moderate", 0, 1, 0, 40, "#76A5AF"),
+    "Tempo Run": ("tempo_run", "Tempo Run", "節奏跑", "Quality", 1, 0, 0, 50, "#E69138"),
+    "Marathon Pace": ("marathon_pace", "Marathon Pace", "馬拉松配速", "Quality", 1, 0, 0, 60, "#F6B26B"),
+    "Interval": ("interval", "Interval", "間歇", "Quality", 1, 0, 0, 70, "#CC0000"),
+    "Repetition": ("repetition", "Repetition", "速度訓練", "Quality", 1, 0, 0, 80, "#990000"),
+    "Progression Run": ("progression_run", "Progression Run", "漸速跑", "Moderate", 1, 0, 0, 90, "#B6D7A8"),
+    "Fartlek": ("fartlek", "Fartlek", "法特萊克", "Quality", 1, 0, 0, 100, "#674EA7"),
+    "Race": ("race", "Race", "比賽", "Race", 1, 0, 0, 110, "#000000"),
+    "Other": ("other", "Other", "其他", "Moderate", 0, 0, 0, 120, "#999999"),
+}
+
+TRAINING_PURPOSE_DIMENSION_DEFAULTS = {
+    "Recovery": ("recovery", "Recovery", "恢復", "Recovery", 0, 1, 0, 10, "#7CB7B8"),
+    "Aerobic Base": ("aerobic_base", "Aerobic Base", "有氧基礎", "Aerobic", 1, 0, 0, 20, "#6FA8DC"),
+    "Endurance": ("endurance", "Endurance", "耐力", "Endurance", 1, 0, 1, 30, "#93C47D"),
+    "Marathon Pace": ("race_specific", "Race Specific", "比賽專項", "Race", 1, 0, 1, 40, "#F6B26B"),
+    "Threshold": ("threshold", "Threshold", "乳酸閾值", "Threshold", 1, 0, 1, 50, "#E69138"),
+    "VO2max": ("vo2max", "VO2max", "最大攝氧量", "VO2max", 1, 0, 1, 60, "#CC0000"),
+    "Speed": ("speed", "Speed", "速度", "Speed", 1, 0, 1, 70, "#990000"),
+    "Neuromuscular": ("neuromuscular", "Neuromuscular", "神經肌肉活化", "Technique", 0, 0, 1, 80, "#674EA7"),
+    "Running Economy": ("running_economy", "Running Economy", "跑步經濟性", "Technique", 0, 0, 1, 90, "#8E7CC3"),
+    "Running Form": ("running_economy", "Running Economy", "跑步經濟性", "Technique", 0, 0, 1, 90, "#8E7CC3"),
+    "Heat Adaptation": ("heat_adaptation", "Heat Adaptation", "高溫適應", "Environmental", 0, 0, 1, 100, "#F1C232"),
+    "Race Simulation": ("race_specific", "Race Specific", "比賽專項", "Race", 1, 0, 1, 40, "#F6B26B"),
+    "Race": ("race", "Race", "正式比賽", "Race", 0, 0, 1, 110, "#000000"),
+    "Taper": ("maintenance", "Maintenance", "維持", "Maintenance", 0, 1, 0, 120, "#B7B7B7"),
+    "Test": ("race", "Race", "正式比賽", "Race", 0, 0, 1, 110, "#000000"),
+}
+
 
 HEADERS = [
     "公里",
@@ -129,6 +202,28 @@ def rounded(value, ndigits=1):
     return round(float(value), ndigits)
 
 
+def null_if_blank(value):
+    return None if value in ("", None) else value
+
+
+def int_or_none(value):
+    if value in ("", None):
+        return None
+    try:
+        return int(round(float(value)))
+    except (TypeError, ValueError):
+        return None
+
+
+def float_or_none(value):
+    if value in ("", None):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def cell_value(value):
     return "" if value is None else value
 
@@ -136,6 +231,19 @@ def cell_value(value):
 def average(values, ndigits=1):
     vals = [float(v) for v in values if isinstance(v, (int, float))]
     return round(mean(vals), ndigits) if vals else None
+
+
+def weighted_average(value_weight_pairs, ndigits=1):
+    total_weight = 0.0
+    weighted_sum = 0.0
+    for value, weight in value_weight_pairs:
+        if not isinstance(value, (int, float)) or not isinstance(weight, (int, float)) or weight <= 0:
+            continue
+        total_weight += float(weight)
+        weighted_sum += float(value) * float(weight)
+    if not total_weight:
+        return None
+    return round(weighted_sum / total_weight, ndigits)
 
 
 def maximum(values):
@@ -150,6 +258,14 @@ def first_number(row, *fields):
     for field in fields:
         value = row.get(field)
         if isinstance(value, (int, float)):
+            return value
+    return None
+
+
+def first_nonblank(row, *fields):
+    for field in fields:
+        value = row.get(field)
+        if value not in ("", None):
             return value
     return None
 
@@ -224,6 +340,7 @@ def default_output_path(fit_path: Path):
 
 def load_dropdown_options(path=DROPDOWN_CONFIG_PATH):
     options = {key: list(value) for key, value in DEFAULT_DROPDOWN_OPTIONS.items()}
+    options["workout_focus_map"] = {}
     if not path.exists():
         return options
     try:
@@ -240,7 +357,120 @@ def load_dropdown_options(path=DROPDOWN_CONFIG_PATH):
                 options[key] = cleaned
         if not options.get(key):
             options[key] = list(default_values)
+    if isinstance(loaded.get("workout_focus_map"), dict):
+        options["workout_focus_map"] = {
+            str(key).strip(): [str(item).strip() for item in value if str(item).strip()]
+            for key, value in loaded["workout_focus_map"].items()
+            if str(key).strip() and isinstance(value, list)
+        }
     return options
+
+
+def label_primary(value):
+    value = str(value or "").strip()
+    if not value:
+        return ""
+    return re.split(r"[（(]", value, maxsplit=1)[0].strip()
+
+
+def canonical_label(value):
+    return label_primary(value).replace("₂", "2").replace("₂", "2")
+
+
+def code_from_label(value, prefix):
+    label = canonical_label(value).lower()
+    code = re.sub(r"[^a-z0-9]+", "_", label).strip("_")
+    if code:
+        return code
+    digest = hashlib.sha1(str(value or "").encode("utf-8")).hexdigest()[:8]
+    return f"{prefix}_{digest}"
+
+
+def exact_or_primary_lookup(mapping, label):
+    if not label:
+        return None
+    if label in mapping:
+        return mapping[label]
+    primary = canonical_label(label)
+    return mapping.get(primary)
+
+
+def shoe_dimension_row(label):
+    row = exact_or_primary_lookup(SHOE_DIMENSION_DEFAULTS, label)
+    if row:
+        return {
+            **row,
+            "is_active": 1,
+        }
+    primary = label_primary(label) or str(label or "").strip()
+    return {
+        "shoe_code": code_from_label(primary, "shoe"),
+        "brand": "Unknown",
+        "model": primary or "Unknown",
+        "nickname": None,
+        "category": "Daily Trainer",
+        "is_active": 1,
+    }
+
+
+def workout_type_dimension_row(label):
+    row = exact_or_primary_lookup(WORKOUT_TYPE_DIMENSION_DEFAULTS, label)
+    if row:
+        code, name_en, name_zh, intensity, quality, long_run, recovery, sort_order, color = row
+    else:
+        name_en = label_primary(label) or str(label or "").strip() or "Other"
+        code, name_zh, intensity, quality, long_run, recovery, sort_order, color = (
+            code_from_label(name_en, "workout"),
+            name_en,
+            "Moderate",
+            0,
+            0,
+            0,
+            999,
+            "#999999",
+        )
+    return {
+        "workout_type_code": code,
+        "name_en": name_en,
+        "name_zh": name_zh,
+        "description": None,
+        "intensity_category": intensity,
+        "is_quality_session": quality,
+        "is_long_run": long_run,
+        "is_recovery_focused": recovery,
+        "sort_order": sort_order,
+        "display_color": color,
+    }
+
+
+def training_purpose_dimension_row(label):
+    row = exact_or_primary_lookup(TRAINING_PURPOSE_DIMENSION_DEFAULTS, label)
+    if row:
+        code, name_en, name_zh, category, physiological, recovery, performance, sort_order, color = row
+    else:
+        name_en = label_primary(label) or str(label or "").strip() or "Maintenance"
+        code, name_zh, category, physiological, recovery, performance, sort_order, color = (
+            code_from_label(name_en, "purpose"),
+            name_en,
+            "Maintenance",
+            0,
+            0,
+            0,
+            999,
+            "#999999",
+        )
+    return {
+        "training_purpose_code": code,
+        "name_en": name_en,
+        "name_zh": name_zh,
+        "description": None,
+        "purpose_category": category,
+        "is_primary_physiological": physiological,
+        "is_recovery_related": recovery,
+        "is_performance_related": performance,
+        "sort_order": sort_order,
+        "display_color": color,
+    }
 
 
 def semicircles_to_degrees(value):
@@ -422,6 +652,16 @@ def stamina_at(records, fallback=None):
         if value is not None:
             return int(value)
     return fallback
+
+
+def has_stamina_data(messages):
+    session = first_session(messages)
+    if first_number(session, STAMINA_SESSION_START, *STAMINA_SESSION_END_FIELDS) is not None:
+        return True
+    for record in messages.get("record_mesgs", []):
+        if first_number(record, *STAMINA_RECORD_FIELDS) is not None:
+            return True
+    return False
 
 
 def first_message_number(messages, message_names, *fields):
@@ -700,6 +940,35 @@ def coerce_metadata(metadata):
     return result
 
 
+def finalized_metadata(metadata, messages, session, rows, fit_path, fetch_weather, dropdown_options):
+    result = apply_file_identity(metadata or {}, fit_path)
+    result = apply_fit_metadata(result, messages)
+    result = apply_auto_weather(result, session, messages.get("record_mesgs", []), fetch_weather)
+    result = coerce_metadata(result)
+
+    if result.get("rpe", "") == "":
+        result["rpe"] = garmin_rpe_label(session.get("workout_rpe"), dropdown_options["garmin_rpe"])
+    else:
+        result["rpe"] = normalize_rpe(result.get("rpe"), dropdown_options["garmin_rpe"])
+    if result.get("feel", "") == "":
+        result["feel"] = garmin_feel_label(session.get("workout_feel"), dropdown_options["garmin_feel"])
+    else:
+        result["feel"] = normalize_feel(result.get("feel"), dropdown_options["garmin_feel"])
+    if result.get("training_effect_aerobic", "") == "":
+        value = session.get("total_training_effect")
+        if isinstance(value, (int, float)):
+            result["training_effect_aerobic"] = round(float(value), 1)
+    if result.get("training_effect_anaerobic", "") == "":
+        value = session.get("total_anaerobic_training_effect")
+        if isinstance(value, (int, float)):
+            result["training_effect_anaerobic"] = round(float(value), 1)
+    if result.get("training_load", "") == "":
+        value = session.get("training_load_peak")
+        if isinstance(value, (int, float)):
+            result["training_load"] = round(float(value))
+    return coerce_metadata(result)
+
+
 def activity_date(session, fit_path: Path):
     start = fit_datetime(session.get("start_time") or session.get("timestamp"))
     if start:
@@ -757,6 +1026,37 @@ def duration_text(seconds):
     return f"{minutes}:{seconds:02d}"
 
 
+def activity_start_iso(session):
+    start = fit_datetime(session.get("start_time") or session.get("timestamp"))
+    if start is None:
+        return None
+    return start.astimezone().strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def wind_direction_degrees(value):
+    if value in ("", None):
+        return None
+    if isinstance(value, (int, float)):
+        return round(float(value), 1)
+    match = re.search(r"-?\d+(?:\.\d+)?", str(value))
+    return round(float(match.group(0)), 1) if match else None
+
+
+def wind_speed_mps(value):
+    if value in ("", None):
+        return None
+    if isinstance(value, (int, float)):
+        return round(float(value), 2)
+    text = str(value).strip().lower()
+    match = re.search(r"-?\d+(?:\.\d+)?", text)
+    if not match:
+        return None
+    speed = float(match.group(0))
+    if "km" in text:
+        speed = speed / 3.6
+    return round(speed, 2)
+
+
 def activity_summary(rows):
     total_distance = sum(row[1] for row in rows if isinstance(row[1], (int, float)))
     total_seconds = sum(row[2] for row in rows if isinstance(row[2], (int, float)))
@@ -767,13 +1067,29 @@ def activity_summary(rows):
     }
 
 
-def running_economy_summary(rows):
+def session_running_cadence_spm(session):
+    cadence = first_number(session, "avg_running_cadence", "avg_cadence")
+    if cadence is None:
+        return None
+    fractional_cadence = first_number(session, "avg_fractional_cadence") or 0
+    return rounded((float(cadence) + float(fractional_cadence)) * 2, 1)
+
+
+def metric_summary_value(session, session_field, rows, row_index, ndigits=1):
+    value = first_number(session, session_field)
+    if value is not None:
+        return rounded(value, ndigits)
+    return weighted_average(((row[row_index], row[2]) for row in rows), ndigits)
+
+
+def running_economy_summary(rows, session=None):
+    session = session or {}
     return {
-        "avg_cadence": average([row[7] for row in rows], 1),
-        "avg_step_length": average([row[13] for row in rows], 1),
-        "avg_gct": average([row[12] for row in rows], 1),
-        "avg_vertical_oscillation": average([row[10] for row in rows], 1),
-        "avg_vertical_ratio": average([row[11] for row in rows], 1),
+        "avg_cadence": session_running_cadence_spm(session) or weighted_average(((row[7], row[2]) for row in rows), 1),
+        "avg_step_length": metric_summary_value(session, "avg_step_length", rows, 13, 1),
+        "avg_gct": metric_summary_value(session, "avg_stance_time", rows, 12, 1),
+        "avg_vertical_oscillation": metric_summary_value(session, "avg_vertical_oscillation", rows, 10, 1),
+        "avg_vertical_ratio": metric_summary_value(session, "avg_vertical_ratio", rows, 11, 1),
     }
 
 
@@ -892,7 +1208,7 @@ def add_metadata_sheet(wb, metadata, fit_path, session, rows, dropdown_options):
 
     start = fit_datetime(session.get("start_time") or session.get("timestamp"))
     activity = activity_summary(rows)
-    economy = running_economy_summary(rows)
+    economy = running_economy_summary(rows, session)
     stamina_start, stamina_end = stamina_summary(rows)
     metadata_sections = [
         (
@@ -1082,9 +1398,10 @@ def add_total_row(ws, row_count, rows):
     ws.cell(total_row, 2, f"=SUM(B{data_start}:B{data_end})")
     ws.cell(total_row, 3, f"=SUM(C{data_start}:C{data_end})")
     ws.cell(total_row, 4, pace_text(total_seconds, total_distance))
-    for col in range(5, 16):
+    for col in (5, 6, 8, 9, 10, 11, 12, 13, 14, 15):
         letter = get_column_letter(col)
-        ws.cell(total_row, col, f"=AVERAGE({letter}{data_start}:{letter}{data_end})")
+        ws.cell(total_row, col, f"=SUMPRODUCT({letter}{data_start}:{letter}{data_end},$C{data_start}:$C{data_end})/SUM($C{data_start}:$C{data_end})")
+    ws.cell(total_row, 7, f"=MAX(G{data_start}:G{data_end})")
     ws.cell(total_row, 16, f"=INDEX(P{data_start}:P{data_end},1)")
     ws.cell(total_row, 17, f"=INDEX(Q{data_start}:Q{data_end},{row_count})")
     ws.cell(total_row, 18, f"=SUM(R{data_start}:R{data_end})")
@@ -1124,16 +1441,301 @@ def add_charts(wb, row_count):
     chart_ws.add_chart(chart2, "A28")
 
 
+def sqlite_activity_row(fit_path, messages, session, rows, metadata):
+    total_distance_m = first_number(session, "total_distance")
+    if total_distance_m is None:
+        total_distance_m = sum(row[1] for row in rows if isinstance(row[1], (int, float)))
+    total_seconds = first_number(session, "total_timer_time", "total_elapsed_time")
+    if total_seconds is None:
+        total_seconds = sum(row[2] for row in rows if isinstance(row[2], (int, float)))
+
+    economy = running_economy_summary(rows, session)
+    stamina_start, stamina_end = stamina_summary(rows) if has_stamina_data(messages) else (None, None)
+
+    return {
+        "fit_sha256": metadata.get("fit_sha256"),
+        "garmin_activity_id": int_or_none(metadata.get("garmin_activity_id")),
+        "excel_schema_version": "v1.1",
+        "source_file_name": fit_path.name,
+        "data_source": "FIT",
+        "activity_start_time": activity_start_iso(session),
+        "activity_type": activity_type(session),
+        "activity_name": null_if_blank(activity_name(session, metadata)),
+        "distance_km": round(float(total_distance_m) / 1000, 3) if total_distance_m else None,
+        "duration_sec": int_or_none(total_seconds),
+        "workout_type_id": None,
+        "shoe_id": None,
+        "temperature_c": float_or_none(metadata.get("weather_temp")),
+        "humidity_pct": float_or_none(metadata.get("humidity")),
+        "wind_speed_mps": wind_speed_mps(metadata.get("wind_speed")),
+        "wind_direction_deg": wind_direction_degrees(metadata.get("wind_direction")),
+        "weather_description": null_if_blank(metadata.get("weather_description")),
+        "max_hr": int_or_none(metadata.get("max_hr") or first_number(session, "max_heart_rate")),
+        "avg_hr": int_or_none(first_number(session, "avg_heart_rate") or weighted_average(((row[4], row[2]) for row in rows), 1)),
+        "critical_power_w": int_or_none(metadata.get("critical_power")),
+        "training_effect_aerobic": float_or_none(metadata.get("training_effect_aerobic")),
+        "training_effect_anaerobic": float_or_none(metadata.get("training_effect_anaerobic")),
+        "training_load": int_or_none(metadata.get("training_load")),
+        "recovery_time_hr": float_or_none(metadata.get("recovery_time_hr")),
+        "stamina_start_pct": int_or_none(stamina_start),
+        "stamina_end_pct": int_or_none(stamina_end),
+        "avg_cadence_spm": float_or_none(economy["avg_cadence"]),
+        "avg_stride_length_mm": float_or_none(economy["avg_step_length"]),
+        "avg_gct_ms": float_or_none(economy["avg_gct"]),
+        "avg_vertical_oscillation_mm": float_or_none(economy["avg_vertical_oscillation"]),
+        "avg_vertical_ratio_pct": float_or_none(economy["avg_vertical_ratio"]),
+        "garmin_feeling": null_if_blank(metadata.get("feel")),
+        "garmin_perceived_effort": null_if_blank(metadata.get("rpe")),
+        "nutrition": null_if_blank(metadata.get("fueling")),
+        "notes": null_if_blank(metadata.get("notes")),
+    }
+
+
+def sqlite_split_rows(messages):
+    laps = messages.get("lap_mesgs", [])
+    records = messages.get("record_mesgs", [])
+    session = first_session(messages)
+    stamina_supported = has_stamina_data(messages)
+    result = []
+
+    for index, lap in enumerate(laps, start=1):
+        distance = float(lap.get("total_distance") or 0)
+        elapsed = float(lap.get("total_timer_time") or lap.get("total_elapsed_time") or 0)
+        lap_start = fit_datetime(lap.get("start_time"))
+        lap_records = records_for_lap(records, lap_start, elapsed)
+
+        cadence = first_number(lap, "avg_running_cadence", "avg_cadence")
+        fractional_cadence = first_number(lap, "avg_fractional_cadence") or 0
+        cadence_spm = (float(cadence) + float(fractional_cadence)) * 2 if cadence is not None else None
+
+        avg_heart_rate = first_number(lap, "avg_heart_rate")
+        if avg_heart_rate is None:
+            avg_heart_rate = average([record.get("heart_rate") for record in lap_records], 1)
+        max_heart_rate = first_number(lap, "max_heart_rate")
+        if max_heart_rate is None:
+            max_heart_rate = maximum([record.get("heart_rate") for record in lap_records])
+        avg_power = first_number(lap, "avg_power")
+        if avg_power is None:
+            avg_power = average([record.get("power") for record in lap_records], 1)
+
+        start_stamina = None
+        end_stamina = None
+        if stamina_supported:
+            start_stamina = stamina_at(lap_records)
+            end_stamina = stamina_at(reversed(lap_records))
+            if index == 1:
+                start_stamina = first_number(session, STAMINA_SESSION_START) or start_stamina
+            if index == len(laps):
+                end_stamina = first_number(session, *STAMINA_SESSION_END_FIELDS) or end_stamina
+
+        result.append(
+            {
+                "split_index": index,
+                "split_distance_m": round(distance, 3) if distance else None,
+                "elapsed_time_sec": int_or_none(elapsed),
+                "avg_hr": int_or_none(avg_heart_rate),
+                "max_hr": int_or_none(max_heart_rate),
+                "avg_power_w": int_or_none(avg_power),
+                "avg_cadence_spm": float_or_none(rounded(cadence_spm, 1)),
+                "avg_stride_length_mm": float_or_none(rounded(lap.get("avg_step_length"), 1)),
+                "avg_gct_ms": float_or_none(rounded(lap.get("avg_stance_time"), 1)),
+                "avg_vertical_ratio_pct": float_or_none(rounded(lap.get("avg_vertical_ratio"), 1)),
+                "avg_vertical_oscillation_mm": float_or_none(rounded(lap.get("avg_vertical_oscillation"), 1)),
+                "elevation_gain_m": float_or_none(rounded(lap.get("total_ascent"), 1)),
+                "elevation_loss_m": float_or_none(rounded(lap.get("total_descent"), 1)),
+                "stamina_start_pct": int_or_none(start_stamina),
+                "stamina_end_pct": int_or_none(end_stamina),
+            }
+        )
+    return result
+
+
+def ensure_sqlite_schema(connection, schema_path=SQLITE_SCHEMA_PATH):
+    connection.execute("PRAGMA foreign_keys = ON")
+    for view_name in (
+        "activity_view",
+        "kilometer_split_view",
+        "activity_training_purpose_view",
+        "shoe_statistics_view",
+    ):
+        connection.execute(f"DROP VIEW IF EXISTS {view_name}")
+    connection.executescript(schema_path.read_text(encoding="utf-8"))
+
+
+def upsert_dimension(connection, table, code_column, row):
+    existing = connection.execute(
+        f"SELECT id FROM {table} WHERE {code_column} = ?",
+        (row[code_column],),
+    ).fetchone()
+    columns = list(row)
+    if existing:
+        update_columns = [column for column in columns if column != code_column]
+        assignments = ", ".join(f"{column} = ?" for column in update_columns)
+        values = [row[column] for column in update_columns]
+        values.append(row[code_column])
+        connection.execute(
+            f"UPDATE {table} SET {assignments} WHERE {code_column} = ?",
+            values,
+        )
+        return existing[0]
+
+    placeholders = ", ".join("?" for _ in columns)
+    connection.execute(
+        f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({placeholders})",
+        [row[column] for column in columns],
+    )
+    return connection.execute(
+        f"SELECT id FROM {table} WHERE {code_column} = ?",
+        (row[code_column],),
+    ).fetchone()[0]
+
+
+def seed_reference_data(connection, dropdown_options):
+    for label in dropdown_options.get("shoes", []):
+        upsert_dimension(connection, "shoe", "shoe_code", shoe_dimension_row(label))
+    for label in dropdown_options.get("workout_types", []):
+        upsert_dimension(connection, "workout_type", "workout_type_code", workout_type_dimension_row(label))
+    for label in dropdown_options.get("training_focus", []):
+        upsert_dimension(connection, "training_purpose", "training_purpose_code", training_purpose_dimension_row(label))
+
+
+def resolve_shoe_id(connection, metadata):
+    label = null_if_blank(metadata.get("shoe"))
+    if not label:
+        return None
+    return upsert_dimension(connection, "shoe", "shoe_code", shoe_dimension_row(label))
+
+
+def resolve_workout_type_id(connection, metadata):
+    label = null_if_blank(metadata.get("workout_type"))
+    if not label:
+        return None
+    return upsert_dimension(connection, "workout_type", "workout_type_code", workout_type_dimension_row(label))
+
+
+def metadata_training_focus_values(metadata, dropdown_options):
+    focus = null_if_blank(metadata.get("training_focus"))
+    if focus:
+        return [focus]
+    workout_type = null_if_blank(metadata.get("workout_type"))
+    if not workout_type:
+        return []
+    focus_map = dropdown_options.get("workout_focus_map", {})
+    return focus_map.get(workout_type, []) or focus_map.get(label_primary(workout_type), [])
+
+
+def sync_activity_training_purposes(connection, activity_id, metadata, dropdown_options):
+    connection.execute(
+        "DELETE FROM activity_training_purpose WHERE activity_id = ?",
+        (activity_id,),
+    )
+    seen_codes = set()
+    for index, label in enumerate(metadata_training_focus_values(metadata, dropdown_options)):
+        row = training_purpose_dimension_row(label)
+        if row["training_purpose_code"] in seen_codes:
+            continue
+        seen_codes.add(row["training_purpose_code"])
+        training_purpose_id = upsert_dimension(
+            connection,
+            "training_purpose",
+            "training_purpose_code",
+            row,
+        )
+        connection.execute(
+            """
+            INSERT INTO activity_training_purpose (
+                activity_id,
+                training_purpose_id,
+                purpose_role
+            ) VALUES (?, ?, ?)
+            """,
+            (activity_id, training_purpose_id, "PRIMARY" if index == 0 else "SECONDARY"),
+        )
+
+
+def upsert_activity(connection, row):
+    columns = list(row)
+    existing = connection.execute(
+        "SELECT id FROM activity WHERE fit_sha256 = ?",
+        (row["fit_sha256"],),
+    ).fetchone()
+    if existing:
+        update_columns = [column for column in columns if column != "fit_sha256"]
+        assignments = ", ".join(f"{column} = ?" for column in update_columns)
+        values = [row[column] for column in update_columns]
+        values.append(row["fit_sha256"])
+        connection.execute(
+            f"UPDATE activity SET {assignments} WHERE fit_sha256 = ?",
+            values,
+        )
+        return existing[0]
+
+    placeholders = ", ".join("?" for _ in columns)
+    connection.execute(
+        f"INSERT INTO activity ({', '.join(columns)}) VALUES ({placeholders})",
+        [row[column] for column in columns],
+    )
+    return connection.execute(
+        "SELECT id FROM activity WHERE fit_sha256 = ?",
+        (row["fit_sha256"],),
+    ).fetchone()[0]
+
+
+def write_fit_to_sqlite(fit_path: Path, db_path: Path, metadata=None, fetch_weather=True, dropdown_options=None):
+    dropdown_options = dropdown_options or load_dropdown_options()
+    messages = decode_fit(fit_path)
+    rows, session = build_rows(messages)
+    if not rows:
+        raise RuntimeError("No lap data found in FIT file.")
+    metadata = finalized_metadata(metadata or {}, messages, session, rows, fit_path, fetch_weather, dropdown_options)
+
+    activity_row = sqlite_activity_row(fit_path, messages, session, rows, metadata)
+    split_rows = sqlite_split_rows(messages)
+
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(db_path) as connection:
+        ensure_sqlite_schema(connection)
+        seed_reference_data(connection, dropdown_options)
+        activity_row["shoe_id"] = resolve_shoe_id(connection, metadata)
+        activity_row["workout_type_id"] = resolve_workout_type_id(connection, metadata)
+        activity_id = upsert_activity(connection, activity_row)
+        sync_activity_training_purposes(connection, activity_id, metadata, dropdown_options)
+        connection.execute("DELETE FROM kilometer_split WHERE activity_id = ?", (activity_id,))
+        split_columns = [
+            "activity_id",
+            "split_index",
+            "split_distance_m",
+            "elapsed_time_sec",
+            "avg_hr",
+            "max_hr",
+            "avg_power_w",
+            "avg_cadence_spm",
+            "avg_stride_length_mm",
+            "avg_gct_ms",
+            "avg_vertical_ratio_pct",
+            "avg_vertical_oscillation_mm",
+            "elevation_gain_m",
+            "elevation_loss_m",
+            "stamina_start_pct",
+            "stamina_end_pct",
+        ]
+        placeholders = ", ".join("?" for _ in split_columns)
+        for split_row in split_rows:
+            row = {"activity_id": activity_id, **split_row}
+            connection.execute(
+                f"INSERT INTO kilometer_split ({', '.join(split_columns)}) VALUES ({placeholders})",
+                [row[column] for column in split_columns],
+            )
+    return db_path
+
+
 def create_workbook(fit_path: Path, output_path: Path, metadata=None, fetch_weather=True, dropdown_options=None):
     dropdown_options = dropdown_options or load_dropdown_options()
     messages = decode_fit(fit_path)
     rows, session = build_rows(messages)
     if not rows:
         raise RuntimeError("No lap data found in FIT file.")
-    metadata = apply_file_identity(metadata or {}, fit_path)
-    metadata = apply_fit_metadata(metadata, messages)
-    metadata = apply_auto_weather(metadata, session, messages.get("record_mesgs", []), fetch_weather)
-    metadata = coerce_metadata(metadata)
+    metadata = finalized_metadata(metadata or {}, messages, session, rows, fit_path, fetch_weather, dropdown_options)
 
     wb = Workbook()
     ws = wb.active
@@ -1159,6 +1761,7 @@ def main():
     parser.add_argument("--version", action="version", version=f"Running Analytics v{APP_VERSION} / {WORKBOOK_VERSION_NAME}")
     parser.add_argument("fit_file", type=Path)
     parser.add_argument("-o", "--output", type=Path)
+    parser.add_argument("--sqlite-db", type=Path, help="Also import this FIT activity into a SQLite v1.0 database.")
     parser.add_argument("--interactive", action="store_true", help="Prompt for manual activity metadata before exporting.")
     parser.set_defaults(fetch_weather=True)
     parser.add_argument("--fetch-weather", dest="fetch_weather", action="store_true", help="Fetch weather from Open-Meteo using FIT start time and GPS location. Enabled by default.")
@@ -1199,6 +1802,15 @@ def main():
         dropdown_options=dropdown_options,
     )
     print(saved)
+    if args.sqlite_db:
+        db_path = write_fit_to_sqlite(
+            args.fit_file,
+            args.sqlite_db,
+            metadata,
+            fetch_weather=args.fetch_weather,
+            dropdown_options=dropdown_options,
+        )
+        print(db_path)
 
 
 if __name__ == "__main__":

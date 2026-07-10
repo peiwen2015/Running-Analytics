@@ -31,6 +31,8 @@ from fit_to_excel import (
     default_output_path,
     load_dropdown_options,
     output_month_label,
+    weighted_average,
+    write_fit_to_sqlite,
 )
 
 
@@ -38,6 +40,7 @@ ROOT = Path(__file__).resolve().parent
 FIT_DIR = ROOT / "FIT"
 ASSETS_DIR = ROOT / "assets"
 GARMIN_CONFIG_PATH = ROOT / "config" / "garmin_connect.json"
+SQLITE_DB_PATH = ROOT / "running_analytics.sqlite"
 HOST = "127.0.0.1"
 PORT = 8765
 EXCEL_FORMAT_VERSION = WORKBOOK_VERSION_NAME
@@ -243,8 +246,16 @@ def workbook_summary(path):
     ]
     total_distance = sum(row[1] or 0 for row in rows)
     total_seconds = sum(row[2] or 0 for row in rows)
-    avg_hr_values = [row[4] for row in rows if isinstance(row[4], (int, float))]
-    avg_power_values = [row[8] for row in rows if isinstance(row[8], (int, float))]
+    avg_hr_pairs = [
+        (row[4], row[2])
+        for row in rows
+        if isinstance(row[4], (int, float)) and isinstance(row[2], (int, float))
+    ]
+    avg_power_pairs = [
+        (row[8], row[2])
+        for row in rows
+        if isinstance(row[8], (int, float)) and isinstance(row[2], (int, float))
+    ]
 
     summary = [
         ("活動日期", info.get("活動日期")),
@@ -252,8 +263,8 @@ def workbook_summary(path):
         ("距離", f"{total_distance / 1000:.2f} km" if total_distance else ""),
         ("時間", format_duration(total_seconds)),
         ("平均配速", pace_text(total_seconds, total_distance)),
-        ("平均心率", round(sum(avg_hr_values) / len(avg_hr_values), 1) if avg_hr_values else ""),
-        ("平均功率", f"{round(sum(avg_power_values) / len(avg_power_values), 1)} W" if avg_power_values else ""),
+        ("平均心率", weighted_average(avg_hr_pairs, 1) if avg_hr_pairs else ""),
+        ("平均功率", f"{weighted_average(avg_power_pairs, 1)} W" if avg_power_pairs else ""),
         ("天氣", weather_summary(info)),
         ("Training Effect", training_effect_summary(info)),
         ("Training Load", info.get("Training Load")),
@@ -875,6 +886,12 @@ def run_batch_convert_job(job_id, month, metadata, fetch_weather, overwrite_newe
             saved = create_workbook(
                 row["fit_path"],
                 row["output_path"],
+                metadata=metadata,
+                fetch_weather=fetch_weather,
+            )
+            write_fit_to_sqlite(
+                row["fit_path"],
+                SQLITE_DB_PATH,
                 metadata=metadata,
                 fetch_weather=fetch_weather,
             )
@@ -2496,6 +2513,7 @@ class AppHandler(BaseHTTPRequestHandler):
 
         try:
             saved = create_workbook(fit_path, output_path, metadata=metadata, fetch_weather=fetch_weather)
+            write_fit_to_sqlite(fit_path, SQLITE_DB_PATH, metadata=metadata, fetch_weather=fetch_weather)
         except Exception as error:
             self.send_html(render_page(error=friendly_error(error), selected_fit=fit_name), status=500)
             return

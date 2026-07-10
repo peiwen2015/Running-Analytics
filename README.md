@@ -29,6 +29,8 @@ config/    下拉選單設定
 
 ```text
 fit_to_excel.py                  FIT 轉 Excel 主程式
+dashboard_app.py                 Running Dashboard 本機 App
+query_running_analytics.py       SQLite 查詢工具
 inspect_fit.py                   檢查 FIT 欄位用的小工具
 config/dropdown_options.json     Excel 下拉選單設定檔
 requirements.txt                 Python 套件需求
@@ -162,6 +164,56 @@ python3 fit_to_excel.py FIT/20260703_ACTIVITY.fit \
 ```bash
 python3 fit_to_excel.py FIT/20260703_ACTIVITY.fit --interactive
 ```
+
+## SQLite 匯入
+
+SQLite 匯入功能可在產生 Excel 的同時，把活動寫入 SQLite v1.0：
+
+```bash
+python3 fit_to_excel.py FIT/20260703_ACTIVITY.fit \
+  --no-fetch-weather \
+  --sqlite-db running_analytics.sqlite
+```
+
+SQLite 匯入目前涵蓋六張核心表：`shoe`、`workout_type`、`training_purpose`、`activity`、`activity_training_purpose`、`kilometer_split`，以及核心 views：`activity_view`、`kilometer_split_view`、`activity_training_purpose_view`、`shoe_statistics_view`。
+
+已用真實資料驗證：
+
+```text
+210 / 210 FIT imported
+210 activities
+2453 kilometer splits
+foreign_key_check clean
+repeated import idempotent
+```
+
+注意：原始 FIT 不包含鞋款、課表意圖與訓練目的等人工語意資料；SQLite 匯入不會自動假造這些值。若轉檔時提供鞋款、課表類型或訓練目的，Importer 會寫入對應 FK 與 `activity_training_purpose` bridge。
+
+## SQLite 查詢
+
+可以用最小查詢工具確認資料庫內容：
+
+```bash
+python3 query_running_analytics.py running_analytics.sqlite summary
+python3 query_running_analytics.py running_analytics.sqlite recent --limit 10
+python3 query_running_analytics.py running_analytics.sqlite splits 1
+```
+
+## Dashboard App
+
+Dashboard 是獨立的資料產品 App，讀取 `running_analytics.sqlite`：
+
+```bash
+python3 dashboard_app.py running_analytics.sqlite
+```
+
+預設網址：
+
+```text
+http://127.0.0.1:8766
+```
+
+Dashboard App v0.1.0-preview 採 Coach-oriented home：Today、Week Summary、This Week intelligence、Activity Detail、Activities 與 Archive。
 
 ## Excel 內容
 
